@@ -7,6 +7,7 @@ import os
 import sys
 import logging
 import requests
+import tempfile
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from mistralai import Mistral
@@ -546,6 +547,68 @@ Document à résumer :
             parse_mode='Markdown'
         )
 
+# Handler pour les messages vocaux
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Gérer les messages vocaux"""
+    logger.info("Message vocal reçu")
+    
+    # Message d'attente
+    processing_msg = await update.message.reply_text(
+        "🎤 *Message vocal reçu*\n⏳ _Transcription en cours..._",
+        parse_mode='Markdown'
+    )
+    
+    try:
+        # Télécharger le fichier audio
+        voice = update.message.voice
+        file_id = voice.file_id
+        
+        # Obtenir le fichier
+        new_file = await context.bot.get_file(file_id)
+        
+        # Créer un fichier temporaire
+        with tempfile.NamedTemporaryFile(suffix='.ogg', delete=False) as tmp_file:
+            # Télécharger le fichier
+            await new_file.download_to_drive(tmp_file.name)
+            tmp_path = tmp_file.name
+        
+        # Lire le fichier audio
+        with open(tmp_path, 'rb') as audio_file:
+            audio_data = audio_file.read()
+        
+        # Nettoyer le fichier temporaire
+        os.unlink(tmp_path)
+        
+        # Utiliser Mistral pour "transcrire" (en fait, on va demander à l'utilisateur de répéter)
+        # Note: Mistral ne fait pas de transcription audio native
+        await processing_msg.edit_text(
+            "🎯 *Transcription audio*\n\n"
+            "⚠️ _La transcription automatique n'est pas encore disponible._\n\n"
+            "💡 *Options :*\n"
+            "• Écris ta question directement\n"
+            "• Utilise la fonction dictée de ton clavier\n"
+            "• Active la transcription Telegram (maintenir le micro)",
+            parse_mode='Markdown'
+        )
+        
+        # Suggestion d'utiliser la transcription native Telegram
+        await update.message.reply_text(
+            "💡 *Astuce :*\n\n"
+            "Telegram peut transcrire automatiquement !\n"
+            "• *Android/iOS :* Maintiens le bouton micro et glisse vers le haut\n"
+            "• Tu verras apparaître le texte en temps réel\n"
+            "• Relâche pour envoyer le texte transcrit",
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        logger.error(f"Erreur traitement vocal: {e}")
+        await processing_msg.edit_text(
+            "❌ *Erreur avec le message vocal*\n\n"
+            "_Essaie d'écrire ta question directement_",
+            parse_mode='Markdown'
+        )
+
 # Répondre aux questions
 async def answer_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Répondre en utilisant les documents"""
@@ -665,6 +728,9 @@ def main():
         
         # Messages texte
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, answer_question))
+        
+        # Messages vocaux
+        app.add_handler(MessageHandler(filters.VOICE, handle_voice))
         
         # Démarrer
         logger.info("✅ Bot démarré ! Polling en cours...")
