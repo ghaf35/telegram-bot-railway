@@ -72,6 +72,10 @@ Je peux lire tes documents sur GitHub et répondre à tes questions 📖
 • `/search [texte]` → Rechercher dans les docs
 • `/summary [nom]` → Résumé rapide
 • `/analyze [nom]` → Analyse complète
+• `/quiz [nom]` → Générer un QCM
+• `/flashcards [nom]` → Cartes de révision
+• `/explain [concept]` → Explication simple
+• `/mindmap [nom]` → Carte mentale
 • `/help` → Aide et configuration
 
 ━━━━━━━━━━━━━━━━━━━━━
@@ -104,6 +108,12 @@ Mets à jour la variable `GITHUB_REPO` dans Railway
 • `/summary [nom]` → Résumé rapide d'un document
 • `/analyze [nom]` → Analyse approfondie
 • `/list` → Voir tous les documents
+
+🎓 *Fonctions d'apprentissage :*
+• `/quiz [nom]` → QCM sur un document
+• `/flashcards [nom]` → Cartes de révision
+• `/explain [concept]` → Explication simplifiée
+• `/mindmap [nom]` → Carte mentale visuelle
 
 💡 _Conseil : Utilise `/summary` pour un aperçu rapide !_
 """
@@ -462,6 +472,426 @@ RAPPEL : Mets TOUS les titres entre *astérisques* pour le gras !"""
         
         await update.message.reply_text(error_msg, parse_mode='Markdown')
 
+# Commande /quiz - Générer un QCM
+async def quiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Générer un quiz sur un document ou tous les documents"""
+    if not documents_cache:
+        await update.message.reply_text(
+            "📂 *Aucun document disponible*\n\n"
+            "Utilise `/sync` pour charger des documents !",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # Si pas d'argument, quiz général
+    if not context.args:
+        await update.message.reply_text(
+            "🎯 *Génération d'un quiz...*\n\n"
+            "_Questions sur tous tes documents_",
+            parse_mode='Markdown'
+        )
+        # Prendre un échantillon de tous les documents
+        all_content = ""
+        for doc_name, content in list(documents_cache.items())[:3]:  # Max 3 docs
+            all_content += f"\n=== {doc_name} ===\n"
+            all_content += content[:1000] + "\n"
+        content_for_quiz = all_content
+        doc_name_display = "Tous les documents"
+    else:
+        # Quiz sur un document spécifique
+        doc_name = ' '.join(context.args)
+        found_doc = None
+        for name in documents_cache.keys():
+            if doc_name.lower() in name.lower():
+                found_doc = name
+                break
+        
+        if not found_doc:
+            await update.message.reply_text(
+                f"❌ *Document non trouvé :* `{doc_name}`",
+                parse_mode='Markdown'
+            )
+            return
+        
+        content_for_quiz = documents_cache[found_doc][:3000]
+        doc_name_display = found_doc
+        
+        await update.message.reply_text(
+            f"🎯 *Génération d'un quiz sur :* `{doc_name_display}`\n\n"
+            "_Création des questions..._",
+            parse_mode='Markdown'
+        )
+    
+    try:
+        prompt = f"""Génère un QCM de 5 questions sur ce contenu. 
+
+Format EXACT à respecter :
+
+*📝 Quiz : {doc_name_display}*
+
+━━━━━━━━━━━━━━━━━━━━━
+
+*Question 1:*
+[Question ici]
+
+A) [Réponse A]
+B) [Réponse B] 
+C) [Réponse C]
+D) [Réponse D]
+
+*Question 2:*
+[Question ici]
+
+A) [Réponse A]
+B) [Réponse B]
+C) [Réponse C] 
+D) [Réponse D]
+
+*Question 3:*
+[Question ici]
+
+A) [Réponse A]
+B) [Réponse B]
+C) [Réponse C]
+D) [Réponse D]
+
+*Question 4:*
+[Question ici]
+
+A) [Réponse A]
+B) [Réponse B]
+C) [Réponse C]
+D) [Réponse D]
+
+*Question 5:*
+[Question ici]
+
+A) [Réponse A]
+B) [Réponse B]
+C) [Réponse C]
+D) [Réponse D]
+
+━━━━━━━━━━━━━━━━━━━━━
+
+💡 *Réponses :*
+1. [Lettre] - [Explication courte]
+2. [Lettre] - [Explication courte]
+3. [Lettre] - [Explication courte]
+4. [Lettre] - [Explication courte]
+5. [Lettre] - [Explication courte]
+
+_Tape_ `/quiz` _pour un nouveau quiz !_
+
+Contenu à analyser :
+{content_for_quiz}"""
+        
+        response = mistral_client.chat.complete(
+            model="mistral-small-latest",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1500,
+            temperature=0.7
+        )
+        
+        await update.message.reply_text(
+            response.choices[0].message.content,
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        logger.error(f"Erreur quiz: {e}")
+        await update.message.reply_text(
+            "❌ *Erreur lors de la génération du quiz*\n\n"
+            "_Réessaie dans quelques instants_",
+            parse_mode='Markdown'
+        )
+
+# Commande /flashcards - Créer des cartes de révision
+async def flashcards_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Créer des flashcards sur un document"""
+    if not documents_cache:
+        await update.message.reply_text(
+            "📂 *Aucun document disponible*\n\n"
+            "Utilise `/sync` pour charger des documents !",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # Si pas d'argument, montrer l'usage
+    if not context.args:
+        message = "🗂️ *Utilisation :* `/flashcards [nom du document]`\n\n"
+        message += "*Documents disponibles :*\n"
+        for doc_name in documents_cache.keys():
+            emoji = "📕" if doc_name.endswith('.pdf') else "📄"
+            message += f"{emoji} `{doc_name}`\n"
+        message += "\n_Exemple :_ `/flashcards document.pdf`"
+        await update.message.reply_text(message, parse_mode='Markdown')
+        return
+    
+    # Trouver le document
+    doc_name = ' '.join(context.args)
+    found_doc = None
+    for name in documents_cache.keys():
+        if doc_name.lower() in name.lower():
+            found_doc = name
+            break
+    
+    if not found_doc:
+        await update.message.reply_text(
+            f"❌ *Document non trouvé :* `{doc_name}`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    await update.message.reply_text(
+        f"🗂️ *Création de flashcards pour :* `{found_doc}`\n\n"
+        "_Génération en cours..._",
+        parse_mode='Markdown'
+    )
+    
+    try:
+        content = documents_cache[found_doc][:3000]
+        
+        prompt = f"""Crée 5 flashcards (cartes de révision) sur ce contenu.
+
+Format EXACT à respecter :
+
+*🗂️ Flashcards : {found_doc}*
+
+━━━━━━━━━━━━━━━━━━━━━
+
+*Carte 1*
+📍 *Recto :* [Question ou concept]
+💡 *Verso :* [Réponse ou définition]
+
+*Carte 2*
+📍 *Recto :* [Question ou concept]
+💡 *Verso :* [Réponse ou définition]
+
+*Carte 3*
+📍 *Recto :* [Question ou concept]
+💡 *Verso :* [Réponse ou définition]
+
+*Carte 4*
+📍 *Recto :* [Question ou concept]
+💡 *Verso :* [Réponse ou définition]
+
+*Carte 5*
+📍 *Recto :* [Question ou concept]
+💡 *Verso :* [Réponse ou définition]
+
+━━━━━━━━━━━━━━━━━━━━━
+
+✨ _Astuce : Note ces cartes pour réviser !_
+
+Contenu à analyser :
+{content}"""
+        
+        response = mistral_client.chat.complete(
+            model="mistral-small-latest",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1000,
+            temperature=0.5
+        )
+        
+        await update.message.reply_text(
+            response.choices[0].message.content,
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        logger.error(f"Erreur flashcards: {e}")
+        await update.message.reply_text(
+            "❌ *Erreur lors de la création des flashcards*",
+            parse_mode='Markdown'
+        )
+
+# Commande /explain - Explication simplifiée
+async def explain_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Expliquer un concept de manière simple"""
+    if not context.args:
+        await update.message.reply_text(
+            "🎓 *Utilisation :* `/explain [concept]`\n\n"
+            "Exemples :\n"
+            "• `/explain photosynthèse`\n"
+            "• `/explain développement durable`\n"
+            "• `/explain coopération internationale`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    concept = ' '.join(context.args)
+    logger.info(f"Explication demandée pour : {concept}")
+    
+    await update.message.reply_text(
+        f"🎓 *Explication de :* `{concept}`\n\n"
+        "_Préparation de l'explication..._",
+        parse_mode='Markdown'
+    )
+    
+    try:
+        # Chercher le concept dans les documents
+        context_text = ""
+        if documents_cache:
+            for doc_name, content in documents_cache.items():
+                if concept.lower() in content.lower():
+                    # Extraire le contexte autour du concept
+                    lines = content.split('\n')
+                    for i, line in enumerate(lines):
+                        if concept.lower() in line.lower():
+                            start = max(0, i-2)
+                            end = min(len(lines), i+3)
+                            context_text += '\n'.join(lines[start:end]) + "\n\n"
+                            if len(context_text) > 1000:
+                                break
+                if len(context_text) > 1000:
+                    break
+        
+        prompt = f"""Explique le concept "{concept}" de manière simple pour un élève de 15 ans.
+
+{"Contexte trouvé dans les documents :" + context_text if context_text else "Utilise tes connaissances générales."}
+
+Format EXACT à respecter :
+
+*🎓 {concept}*
+
+*📌 Définition simple :*
+[Explication en 2-3 phrases simples]
+
+*🔍 En détail :*
+• [Point 1 simple]
+• [Point 2 simple] 
+• [Point 3 simple]
+
+*💡 Exemple concret :*
+[Un exemple de la vie quotidienne]
+
+*🎯 À retenir :*
+[L'essentiel en 1 phrase]
+
+━━━━━━━━━━━━━━━━━━━━━
+
+✨ _Besoin d'en savoir plus ? Demande !_"""
+        
+        response = mistral_client.chat.complete(
+            model="mistral-small-latest",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=800,
+            temperature=0.3
+        )
+        
+        await update.message.reply_text(
+            response.choices[0].message.content,
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        logger.error(f"Erreur explain: {e}")
+        await update.message.reply_text(
+            "❌ *Erreur lors de l'explication*\n\n"
+            "_Réessaie avec un autre concept_",
+            parse_mode='Markdown'
+        )
+
+# Commande /mindmap - Carte mentale
+async def mindmap_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Créer une carte mentale textuelle d'un document"""
+    if not documents_cache:
+        await update.message.reply_text(
+            "📂 *Aucun document disponible*\n\n"
+            "Utilise `/sync` pour charger des documents !",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # Si pas d'argument, montrer l'usage
+    if not context.args:
+        message = "🧠 *Utilisation :* `/mindmap [nom du document]`\n\n"
+        message += "*Crée une carte mentale du document*\n\n"
+        message += "Documents disponibles :\n"
+        for doc_name in list(documents_cache.keys())[:5]:  # Max 5
+            emoji = "📕" if doc_name.endswith('.pdf') else "📄"
+            message += f"{emoji} `{doc_name}`\n"
+        await update.message.reply_text(message, parse_mode='Markdown')
+        return
+    
+    # Trouver le document
+    doc_name = ' '.join(context.args)
+    found_doc = None
+    for name in documents_cache.keys():
+        if doc_name.lower() in name.lower():
+            found_doc = name
+            break
+    
+    if not found_doc:
+        await update.message.reply_text(
+            f"❌ *Document non trouvé :* `{doc_name}`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    await update.message.reply_text(
+        f"🧠 *Création de la carte mentale pour :* `{found_doc}`\n\n"
+        "_Analyse en cours..._",
+        parse_mode='Markdown'
+    )
+    
+    try:
+        content = documents_cache[found_doc][:2500]
+        
+        prompt = f"""Crée une carte mentale textuelle de ce document.
+
+Format EXACT à respecter (utilise des emojis et de l'indentation) :
+
+*🧠 Carte mentale : {found_doc}*
+
+━━━━━━━━━━━━━━━━━━━━━
+
+🎯 *[Thème Central]*
+├── 📌 *[Branche 1]*
+│   ├── • Point 1.1
+│   ├── • Point 1.2
+│   └── • Point 1.3
+├── 📌 *[Branche 2]*
+│   ├── • Point 2.1
+│   ├── • Point 2.2
+│   └── • Point 2.3
+├── 📌 *[Branche 3]*
+│   ├── • Point 3.1
+│   └── • Point 3.2
+└── 📌 *[Branche 4]*
+    ├── • Point 4.1
+    └── • Point 4.2
+
+━━━━━━━━━━━━━━━━━━━━━
+
+💡 *Liens entre les concepts :*
+• [Branche 1] ↔️ [Branche 2] : [Relation]
+• [Branche 3] ↔️ [Branche 4] : [Relation]
+
+✨ _Cette carte résume les idées principales !_
+
+Contenu à analyser :
+{content}"""
+        
+        response = mistral_client.chat.complete(
+            model="mistral-small-latest",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1200,
+            temperature=0.5
+        )
+        
+        await update.message.reply_text(
+            response.choices[0].message.content,
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        logger.error(f"Erreur mindmap: {e}")
+        await update.message.reply_text(
+            "❌ *Erreur lors de la création de la carte mentale*",
+            parse_mode='Markdown'
+        )
+
 # Commande /summary (version simplifiée de analyze)
 async def summary_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Résumer rapidement un document"""
@@ -725,6 +1155,10 @@ def main():
         app.add_handler(CommandHandler("search", search_in_docs))
         app.add_handler(CommandHandler("analyze", analyze_docs))
         app.add_handler(CommandHandler("summary", summary_doc))
+        app.add_handler(CommandHandler("quiz", quiz_command))
+        app.add_handler(CommandHandler("flashcards", flashcards_command))
+        app.add_handler(CommandHandler("explain", explain_command))
+        app.add_handler(CommandHandler("mindmap", mindmap_command))
         
         # Messages texte
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, answer_question))
