@@ -69,7 +69,8 @@ Je peux lire tes documents sur GitHub et répondre à tes questions 📖
 • `/sync` → Charger tes documents
 • `/list` → Voir les documents
 • `/search [texte]` → Rechercher dans les docs
-• `/analyze [nom]` → Analyser un document
+• `/summary [nom]` → Résumé rapide
+• `/analyze [nom]` → Analyse complète
 • `/help` → Aide et configuration
 
 ━━━━━━━━━━━━━━━━━━━━━
@@ -99,10 +100,11 @@ Mets à jour la variable `GITHUB_REPO` dans Railway
 
 📋 *Autres commandes :*
 • `/search [texte]` → Rechercher un mot/phrase
-• `/analyze [nom]` → Analyser un document spécifique
+• `/summary [nom]` → Résumé rapide d'un document
+• `/analyze [nom]` → Analyse approfondie
 • `/list` → Voir tous les documents
 
-_Exemple :_ `/analyze Livre blanc.pdf`
+💡 _Conseil : Utilise `/summary` pour un aperçu rapide !_
 """
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
@@ -352,9 +354,10 @@ async def analyze_docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         words = len(content.split())
         chars = len(content)
         
-        # Limiter le contenu pour l'analyse (max 10000 caractères)
-        if len(content) > 10000:
-            content_preview = content[:10000] + "..."
+        # Limiter le contenu pour l'analyse (max 5000 caractères pour Mistral)
+        if len(content) > 5000:
+            content_preview = content[:5000] + "\n\n[... Document tronqué pour l'analyse ...]"
+            logger.info(f"Document tronqué : {len(content)} -> 5000 caractères")
         else:
             content_preview = content
         
@@ -438,9 +441,105 @@ IMPORTANT : Sois très précis et détaillé dans ton analyse. Utilise des emoji
         
     except Exception as e:
         logger.error(f"Erreur analyse: {e}")
+        logger.error(f"Type d'erreur: {type(e).__name__}")
+        logger.error(f"Document analysé: {found_doc}")
+        logger.error(f"Taille du document: {len(content)} caractères")
+        
+        # Message d'erreur plus détaillé
+        error_msg = "❌ *Erreur lors de l'analyse*\n\n"
+        
+        if "rate_limit" in str(e).lower():
+            error_msg += "⏱️ _Limite de requêtes atteinte. Attends 1 minute._"
+        elif "token" in str(e).lower():
+            error_msg += "📏 _Document trop long. Essaie avec un document plus court._"
+        else:
+            error_msg += f"🔧 _Erreur technique : {type(e).__name__}_\n"
+            error_msg += "_Réessaie dans quelques instants_"
+        
+        await update.message.reply_text(error_msg, parse_mode='Markdown')
+
+# Commande /summary (version simplifiée de analyze)
+async def summary_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Résumer rapidement un document"""
+    if not documents_cache:
         await update.message.reply_text(
-            "❌ *Erreur lors de l'analyse*\n\n"
-            "_Réessaie dans quelques instants_",
+            "📂 *Aucun document disponible*\n\n"
+            "Utilise `/sync` pour charger des documents !",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # Si pas d'argument, montrer l'usage
+    if not context.args:
+        message = "📄 *Utilisation :* `/summary [nom du document]`\n\n"
+        message += "*Pour un résumé rapide d'un document*\n"
+        message += "_Exemple :_ `/summary document.pdf`"
+        await update.message.reply_text(message, parse_mode='Markdown')
+        return
+    
+    # Récupérer le nom du document
+    doc_name = ' '.join(context.args)
+    
+    # Chercher le document
+    found_doc = None
+    for name in documents_cache.keys():
+        if doc_name.lower() in name.lower():
+            found_doc = name
+            break
+    
+    if not found_doc:
+        await update.message.reply_text(
+            f"❌ *Document non trouvé :* `{doc_name}`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    await update.message.reply_text(
+        f"📄 *Résumé de :* `{found_doc}`\n⏳ _En cours..._",
+        parse_mode='Markdown'
+    )
+    
+    try:
+        content = documents_cache[found_doc]
+        words = len(content.split())
+        
+        # Prendre seulement le début pour un résumé rapide
+        content_preview = content[:3000] if len(content) > 3000 else content
+        
+        prompt = f"""Fais un résumé CONCIS de ce document en utilisant ce format :
+
+*📄 {found_doc}*
+
+*📌 En bref :*
+Résume en 2-3 phrases maximum.
+
+*🎯 Points principaux :*
+• Point 1
+• Point 2
+• Point 3
+
+*💡 À retenir :*
+Message clé en une phrase.
+
+Document à résumer :
+{content_preview}"""
+        
+        response = mistral_client.chat.complete(
+            model="mistral-small-latest",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=500,
+            temperature=0.3
+        )
+        
+        summary = response.choices[0].message.content
+        summary += f"\n\n📊 _Document de {words:,} mots_"
+        
+        await update.message.reply_text(summary, parse_mode='Markdown')
+        
+    except Exception as e:
+        logger.error(f"Erreur résumé: {e}")
+        await update.message.reply_text(
+            "❌ *Erreur*\n_Essaie `/analyze` pour une analyse complète_",
             parse_mode='Markdown'
         )
 
@@ -559,6 +658,7 @@ def main():
         app.add_handler(CommandHandler("list", list_docs))
         app.add_handler(CommandHandler("search", search_in_docs))
         app.add_handler(CommandHandler("analyze", analyze_docs))
+        app.add_handler(CommandHandler("summary", summary_doc))
         
         # Messages texte
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, answer_question))
