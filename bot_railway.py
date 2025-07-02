@@ -54,38 +54,59 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Message de bienvenue"""
     logger.info(f"Commande /start de {update.effective_user.username}")
     message = """
-🤖 Salut ! Je peux lire tes documents sur GitHub !
+🤖 *Salut ! Je suis ton assistant intelligent !*
 
-📚 Comment ça marche :
-1. Crée un repo GitHub avec tes PDF/TXT
-2. Configure GITHUB_REPO dans .env
-3. Utilise /sync pour charger les docs
+Je peux lire tes documents sur GitHub et répondre à tes questions 📖
 
-🔧 Commandes :
-/sync - Charger les documents
-/list - Voir les documents
-/help - Aide GitHub
+━━━━━━━━━━━━━━━━━━━━━
 
-Pose-moi tes questions ! 💬
+📚 *Comment ça marche :*
+• Mets tes cours sur GitHub
+• Lance `/sync` pour les charger
+• Pose-moi tes questions !
+
+🎯 *Commandes disponibles :*
+• `/sync` → Charger tes documents
+• `/list` → Voir les documents
+• `/help` → Aide et configuration
+
+━━━━━━━━━━━━━━━━━━━━━
+
+💬 *Pose-moi directement ta question !*
 """
-    await update.message.reply_text(message)
+    await update.message.reply_text(message, parse_mode='Markdown')
 
 # Commande /help
 async def help_github(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Aide pour configurer GitHub"""
     help_text = f"""
-📝 Configuration actuelle :
-Repository : {GITHUB_REPO}
+📝 *Configuration actuelle*
 
-Pour changer de repo, mets à jour la variable GITHUB_REPO dans Railway !
+🔗 *Repository :* `{GITHUB_REPO}`
+✅ *Statut :* Bot actif et prêt !
+
+━━━━━━━━━━━━━━━━━━━━━
+
+💡 *Pour changer de repo :*
+Mets à jour la variable `GITHUB_REPO` dans Railway
+
+🆘 *Besoin d'aide ?*
+• Vérifie que ton repo est public
+• Les fichiers doivent être des PDF ou TXT
+• Lance `/sync` après avoir ajouté des fichiers
 """
-    await update.message.reply_text(help_text)
+    await update.message.reply_text(help_text, parse_mode='Markdown')
 
 # Commande /sync
 async def sync_github(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Synchroniser avec GitHub"""
     logger.info("Synchronisation GitHub demandée")
-    await update.message.reply_text(f"🔄 Synchronisation avec GitHub ({GITHUB_REPO})...")
+    await update.message.reply_text(
+        f"🔄 *Synchronisation en cours...*\n\n"
+        f"📂 Repository : `{GITHUB_REPO}`\n"
+        f"⏳ Recherche des documents...",
+        parse_mode='Markdown'
+    )
     
     try:
         # Headers pour l'API GitHub
@@ -97,8 +118,10 @@ async def sync_github(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if response.status_code != 200:
             await update.message.reply_text(
-                f"❌ Erreur GitHub : {response.status_code}\n"
-                "Vérifie que le repo existe et est public !"
+                f"❌ *Erreur GitHub*\n\n"
+                f"Code : `{response.status_code}`\n"
+                f"Vérifie que le repo *{GITHUB_REPO}* existe et est public !",
+                parse_mode='Markdown'
             )
             return
         
@@ -130,11 +153,20 @@ async def sync_github(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception as e:
                     logger.error(f"Erreur avec {file['name']}: {e}")
         
-        await update.message.reply_text(
-            f"✅ Synchronisation terminée !\n"
-            f"📚 {loaded} documents chargés\n"
-            f"Utilise /list pour voir les documents"
-        )
+        if loaded > 0:
+            await update.message.reply_text(
+                f"✅ *Synchronisation terminée !*\n\n"
+                f"📚 *{loaded} documents chargés*\n"
+                f"🎯 Tu peux maintenant me poser des questions !\n\n"
+                f"💡 _Utilise `/list` pour voir les documents_",
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                f"⚠️ *Aucun document trouvé*\n\n"
+                f"Assure-toi d'avoir des fichiers PDF ou TXT dans ton repo GitHub !",
+                parse_mode='Markdown'
+            )
         
     except Exception as e:
         logger.error(f"Erreur sync: {e}")
@@ -145,17 +177,29 @@ async def list_docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Lister les documents"""
     if not documents_cache:
         await update.message.reply_text(
-            "📂 Aucun document chargé\n"
-            "Utilise /sync d'abord !"
+            "📂 *Aucun document chargé*\n\n"
+            "Utilise `/sync` pour charger tes documents depuis GitHub !",
+            parse_mode='Markdown'
         )
         return
     
-    message = "📚 Documents disponibles :\n\n"
-    for doc_name in documents_cache.keys():
-        message += f"• {doc_name}\n"
+    message = "📚 *Documents disponibles :*\n\n"
+    for i, doc_name in enumerate(documents_cache.keys(), 1):
+        # Emoji différent selon le type de fichier
+        if doc_name.endswith('.pdf'):
+            emoji = "📕"
+        elif doc_name.endswith('.txt'):
+            emoji = "📄"
+        elif doc_name.endswith('.md'):
+            emoji = "📝"
+        else:
+            emoji = "📋"
+        message += f"{emoji} `{doc_name}`\n"
     
-    message += f"\n💡 {len(documents_cache)} documents prêts !"
-    await update.message.reply_text(message)
+    message += f"\n━━━━━━━━━━━━━━━━━━━━━\n"
+    message += f"✨ *{len(documents_cache)} documents prêts !*\n"
+    message += f"💬 _Pose-moi tes questions !_"
+    await update.message.reply_text(message, parse_mode='Markdown')
 
 # Répondre aux questions
 async def answer_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -163,7 +207,7 @@ async def answer_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     question = update.message.text
     logger.info(f"Question reçue : {question[:50]}...")
     
-    await update.message.reply_text("🤔 Je cherche dans tes documents...")
+    await update.message.reply_text("🤔 *Je cherche dans tes documents...*", parse_mode='Markdown')
     
     try:
         if documents_cache:
@@ -180,18 +224,27 @@ Voici les documents disponibles :
 
 Question de l'étudiant : {question}
 
-Réponds en :
-1. Te basant sur les documents fournis
-2. Citant le document source
-3. Étant clair et pédagogue
-4. Si l'info n'est pas dans les docs, dis-le"""
+INSTRUCTIONS IMPORTANTES :
+1. Réponds en te basant UNIQUEMENT sur les documents fournis
+2. Utilise le formatage Markdown de Telegram :
+   - *texte* pour le gras
+   - _texte_ pour l'italique
+   - `code` pour le code
+   - Utilise des emojis pertinents (📌, 💡, ✅, 📖, 🎯, etc.)
+3. Structure ta réponse avec :
+   - Des titres en gras
+   - Des bullet points avec •
+   - Des séparations avec ━━━━━
+4. Cite le document source entre parenthèses
+5. Si l'info n'est pas dans les docs, dis-le clairement avec ⚠️"""
             
         else:
             prompt = f"""L'utilisateur demande : {question}
 
-Aucun document n'est chargé. Suggère d'utiliser :
-1. /help pour voir la config
-2. /sync pour charger les documents"""
+Aucun document n'est chargé. Réponds avec le formatage Markdown Telegram et des emojis :
+- Utilise ⚠️ pour avertir qu'aucun document n'est chargé
+- Suggère d'utiliser `/sync` pour charger les documents
+- Sois sympathique et utilise des emojis"""
         
         # Demander à Mistral
         response = mistral_client.chat.complete(
@@ -201,11 +254,19 @@ Aucun document n'est chargé. Suggère d'utiliser :
             temperature=0.3
         )
         
-        await update.message.reply_text(response.choices[0].message.content)
+        # Envoyer la réponse avec parse_mode Markdown
+        await update.message.reply_text(
+            response.choices[0].message.content,
+            parse_mode='Markdown'
+        )
         
     except Exception as e:
         logger.error(f"Erreur réponse: {e}")
-        await update.message.reply_text(f"❌ Erreur : {str(e)}")
+        await update.message.reply_text(
+            f"❌ *Une erreur s'est produite*\n\n"
+            f"Réessaie dans quelques secondes ou contacte le support.",
+            parse_mode='Markdown'
+        )
 
 # Fonction principale
 def main():
