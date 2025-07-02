@@ -1,0 +1,4 @@
+# Requirements simples pour commencer
+python-telegram-bot
+mistralai
+python-dotenv
