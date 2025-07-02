@@ -224,27 +224,58 @@ Voici les documents disponibles :
 
 Question de l'étudiant : {question}
 
-INSTRUCTIONS IMPORTANTES :
+EXEMPLE de réponse bien formatée :
+
+*📚 Réponse à ta question*
+
+Voici ce que j'ai trouvé dans tes documents :
+
+• Premier point important
+• Deuxième point clé
+• Troisième élément
+
+*💡 Explication détaillée*
+
+Plus de détails ici avec des exemples...
+
+━━━━━━━━━━━━━━━━━━━━━
+
+*📖 Source :* _document.pdf_
+
+INSTRUCTIONS IMPORTANTES pour le formatage :
 1. Réponds en te basant UNIQUEMENT sur les documents fournis
 2. Utilise le formatage Markdown de Telegram :
-   - *texte* pour le gras
+   - *texte* pour le gras (utilise-le pour TOUS les titres)
    - _texte_ pour l'italique
-   - `code` pour le code
-   - Utilise des emojis pertinents (📌, 💡, ✅, 📖, 🎯, etc.)
-3. Structure ta réponse avec :
-   - Des titres en gras
-   - Des bullet points avec •
-   - Des séparations avec ━━━━━
-4. Cite le document source entre parenthèses
-5. Si l'info n'est pas dans les docs, dis-le clairement avec ⚠️"""
+   - `code` pour le code ou les termes techniques
+   - Utilise des emojis pertinents (📌, 💡, ✅, 📖, 🎯, 📚, ⚡, 🔍, etc.)
+3. Structure ta réponse OBLIGATOIREMENT comme ceci :
+   - *🎯 Titre principal* (toujours en gras avec emoji)
+   - Contenu avec bullet points • 
+   - *📌 Sous-titre* (toujours en gras avec emoji)
+   - Plus de contenu
+   - Utilise ━━━━━━━━━ pour séparer les sections
+4. À la fin, ajoute toujours :
+   - *📖 Source :* _(nom du document)_
+5. Si l'info n'est pas dans les docs :
+   - Commence par : *⚠️ Information non trouvée*
+   - Explique que tu ne peux répondre qu'avec les documents fournis"""
             
         else:
             prompt = f"""L'utilisateur demande : {question}
 
-Aucun document n'est chargé. Réponds avec le formatage Markdown Telegram et des emojis :
-- Utilise ⚠️ pour avertir qu'aucun document n'est chargé
-- Suggère d'utiliser `/sync` pour charger les documents
-- Sois sympathique et utilise des emojis"""
+Aucun document n'est chargé. Réponds EXACTEMENT avec ce format :
+
+*⚠️ Aucun document disponible*
+
+Je ne peux pas répondre à ta question car aucun document n'est chargé.
+
+*💡 Que faire ?*
+• Utilise la commande `/sync` pour charger tes documents
+• Assure-toi d'avoir des fichiers dans ton repo GitHub
+• Puis repose ta question !
+
+_Besoin d'aide ? Utilise `/help`_"""
         
         # Demander à Mistral
         response = mistral_client.chat.complete(
