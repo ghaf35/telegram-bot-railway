@@ -7,12 +7,13 @@ import os
 import sys
 import logging
 import requests
-import base64
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from mistralai import Mistral
 import PyPDF2
 import io
+
+# PAS de dotenv sur Railway !
 
 # Configuration du logging
 logging.basicConfig(
