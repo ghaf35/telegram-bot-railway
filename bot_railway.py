@@ -362,59 +362,62 @@ async def analyze_docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
             content_preview = content
         
         # Demander à l'IA une analyse détaillée
-        prompt = f"""Analyse ce document en détail et fournis une étude complète.
+        prompt = f"""Tu dois analyser ce document et produire une analyse structurée.
+TRÈS IMPORTANT : Utilise le formatage Markdown Telegram avec *astérisques* pour mettre les titres en gras.
 
-Document : {found_doc}
+Document à analyser : {found_doc}
 Contenu :
 {content_preview}
 
-Produis une analyse APPROFONDIE avec ce format EXACT :
+INSTRUCTIONS CRITIQUES DE FORMATAGE :
+- TOUS les titres doivent être entre astérisques : *Titre*
+- Utilise EXACTEMENT ce format, COPIE-COLLE la structure :
 
 *📊 Résumé exécutif*
 
-Résumé du document en 3-4 phrases claires et concises.
+(Ton résumé ici en 3-4 phrases)
 
 *🎯 Objectifs et thèmes principaux*
 
-• Objectif principal : explication
-• Thème 1 : description détaillée
-• Thème 2 : description détaillée
-• Thème 3 : description détaillée
+• Objectif principal : (ton texte)
+• Thème 1 : (ton texte)
+• Thème 2 : (ton texte)
+• Thème 3 : (ton texte)
 
 *💡 Points clés et propositions*
 
-• Point clé 1 : explication détaillée
-• Point clé 2 : explication détaillée
-• Point clé 3 : explication détaillée
-• Point clé 4 : explication détaillée
-• Point clé 5 : explication détaillée
+• Point clé 1 : (ton texte)
+• Point clé 2 : (ton texte)
+• Point clé 3 : (ton texte)
+• Point clé 4 : (ton texte)
+• Point clé 5 : (ton texte)
 
 *🔍 Analyse critique*
 
-• Forces : quels sont les points forts ?
-• Faiblesses : quelles sont les limites ?
-• Opportunités : quelles pistes à explorer ?
+• *Forces :* (ton texte)
+• *Faiblesses :* (ton texte)
+• *Opportunités :* (ton texte)
 
 *📝 Structure du document*
 
-• Introduction : résumé
-• Développement : points principaux
-• Conclusion : messages clés
+• *Introduction :* (ton texte)
+• *Développement :* (ton texte)
+• *Conclusion :* (ton texte)
 
 *🎓 Pour aller plus loin*
 
-• Question 1 à approfondir
-• Question 2 à explorer
-• Recherches complémentaires suggérées
+• (question 1)
+• (question 2)
+• (suggestion de recherche)
 
 ━━━━━━━━━━━━━━━━━━━━━
 
 *📈 Informations*
-• Titre : {found_doc}
-• Taille : {words:,} mots
-• Type : {"PDF" if found_doc.endswith('.pdf') else "Texte"}
+• *Titre :* {found_doc}
+• *Taille :* {words:,} mots
+• *Type :* {"PDF" if found_doc.endswith('.pdf') else "Texte"}
 
-IMPORTANT : Sois très précis et détaillé dans ton analyse. Utilise des emojis et du formatage Markdown !"""
+RAPPEL : Mets TOUS les titres entre *astérisques* pour le gras !"""
         
         # Appeler l'IA
         response = mistral_client.chat.complete(
