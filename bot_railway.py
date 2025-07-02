@@ -69,7 +69,7 @@ Je peux lire tes documents sur GitHub et répondre à tes questions 📖
 • `/sync` → Charger tes documents
 • `/list` → Voir les documents
 • `/search [texte]` → Rechercher dans les docs
-• `/analyze` → Analyser tous les documents
+• `/analyze [nom]` → Analyser un document
 • `/help` → Aide et configuration
 
 ━━━━━━━━━━━━━━━━━━━━━
@@ -99,8 +99,10 @@ Mets à jour la variable `GITHUB_REPO` dans Railway
 
 📋 *Autres commandes :*
 • `/search [texte]` → Rechercher un mot/phrase
-• `/analyze` → Analyse complète des documents
+• `/analyze [nom]` → Analyser un document spécifique
 • `/list` → Voir tous les documents
+
+_Exemple :_ `/analyze Livre blanc.pdf`
 """
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
@@ -300,101 +302,139 @@ async def search_in_docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Commande /analyze
 async def analyze_docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Analyser tous les documents chargés"""
+    """Analyser un document spécifique"""
     if not documents_cache:
         await update.message.reply_text(
-            "📂 *Aucun document à analyser*\n\n"
+            "📂 *Aucun document disponible*\n\n"
             "Utilise `/sync` pour charger des documents !",
             parse_mode='Markdown'
         )
         return
     
+    # Si pas d'argument, montrer l'usage
+    if not context.args:
+        message = "📊 *Utilisation :* `/analyze [nom du document]`\n\n"
+        message += "*Documents disponibles :*\n"
+        for doc_name in documents_cache.keys():
+            emoji = "📕" if doc_name.endswith('.pdf') else "📄"
+            message += f"{emoji} `{doc_name}`\n"
+        message += "\n_Exemple :_ `/analyze document.pdf`"
+        await update.message.reply_text(message, parse_mode='Markdown')
+        return
+    
+    # Récupérer le nom du document
+    doc_name = ' '.join(context.args)
+    
+    # Chercher le document (correspondance exacte ou partielle)
+    found_doc = None
+    for name in documents_cache.keys():
+        if doc_name.lower() in name.lower():
+            found_doc = name
+            break
+    
+    if not found_doc:
+        await update.message.reply_text(
+            f"❌ *Document non trouvé :* `{doc_name}`\n\n"
+            f"Utilise `/list` pour voir les documents disponibles",
+            parse_mode='Markdown'
+        )
+        return
+    
     await update.message.reply_text(
-        "🤖 *Analyse complète en cours...*\n\n"
-        "⏳ _Cela peut prendre quelques secondes_",
+        f"🤖 *Analyse de :* `{found_doc}`\n\n"
+        f"⏳ _Analyse en cours..._",
         parse_mode='Markdown'
     )
     
     try:
-        # Préparer le contexte pour l'analyse
-        docs_summary = ""
-        total_chars = 0
-        total_words = 0
+        # Récupérer le contenu du document
+        content = documents_cache[found_doc]
+        words = len(content.split())
+        chars = len(content)
         
-        for doc_name, content in documents_cache.items():
-            chars = len(content)
-            words = len(content.split())
-            total_chars += chars
-            total_words += words
-            
-            # Prendre un extrait représentatif
-            preview = content[:1000] + "..." if len(content) > 1000 else content
-            docs_summary += f"\n[{doc_name}] ({words} mots):\n{preview}\n"
+        # Limiter le contenu pour l'analyse (max 10000 caractères)
+        if len(content) > 10000:
+            content_preview = content[:10000] + "..."
+        else:
+            content_preview = content
         
-        # Demander à l'IA une analyse
-        prompt = f"""Analyse ces documents et fournis un résumé structuré.
+        # Demander à l'IA une analyse détaillée
+        prompt = f"""Analyse ce document en détail et fournis une étude complète.
 
-Documents disponibles :
-{docs_summary}
+Document : {found_doc}
+Contenu :
+{content_preview}
 
-Produis une analyse COMPLÈTE avec ce format EXACT :
+Produis une analyse APPROFONDIE avec ce format EXACT :
 
-*📊 Vue d'ensemble*
+*📊 Résumé exécutif*
 
-Résumé général en 2-3 phrases des documents disponibles.
+Résumé du document en 3-4 phrases claires et concises.
 
-*📚 Documents analysés*
+*🎯 Objectifs et thèmes principaux*
 
-• Document 1 : description courte
-• Document 2 : description courte
-(etc.)
+• Objectif principal : explication
+• Thème 1 : description détaillée
+• Thème 2 : description détaillée
+• Thème 3 : description détaillée
 
-*🎯 Thèmes principaux*
+*💡 Points clés et propositions*
 
-• Thème 1 : explication
-• Thème 2 : explication
-• Thème 3 : explication
+• Point clé 1 : explication détaillée
+• Point clé 2 : explication détaillée
+• Point clé 3 : explication détaillée
+• Point clé 4 : explication détaillée
+• Point clé 5 : explication détaillée
 
-*💡 Points clés à retenir*
+*🔍 Analyse critique*
 
-• Point important 1
-• Point important 2
-• Point important 3
+• Forces : quels sont les points forts ?
+• Faiblesses : quelles sont les limites ?
+• Opportunités : quelles pistes à explorer ?
 
-*🔍 Suggestions d'étude*
+*📝 Structure du document*
 
-• Suggestion 1 pour mieux utiliser ces documents
-• Suggestion 2
-• Suggestion 3
+• Introduction : résumé
+• Développement : points principaux
+• Conclusion : messages clés
+
+*🎓 Pour aller plus loin*
+
+• Question 1 à approfondir
+• Question 2 à explorer
+• Recherches complémentaires suggérées
 
 ━━━━━━━━━━━━━━━━━━━━━
 
-*📈 Statistiques*
-• Nombre de documents : X
-• Total de mots : X
-• Sujets couverts : X
+*📈 Informations*
+• Titre : {found_doc}
+• Taille : {words:,} mots
+• Type : {"PDF" if found_doc.endswith('.pdf') else "Texte"}
 
-Utilise des emojis et du formatage Markdown !"""
+IMPORTANT : Sois très précis et détaillé dans ton analyse. Utilise des emojis et du formatage Markdown !"""
         
         # Appeler l'IA
         response = mistral_client.chat.complete(
             model="mistral-small-latest",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=1500,
+            max_tokens=2000,
             temperature=0.3
         )
         
-        # Ajouter les vraies stats à la fin
+        # Récupérer l'analyse
         analysis = response.choices[0].message.content
         
-        # Si l'IA n'a pas ajouté les stats, les ajouter
-        if "*📈 Statistiques*" not in analysis:
-            analysis += f"\n\n*📈 Statistiques réelles*\n"
-            analysis += f"• Nombre de documents : {len(documents_cache)}\n"
-            analysis += f"• Total de mots : {total_words:,}\n"
-            analysis += f"• Total de caractères : {total_chars:,}"
-        
-        await update.message.reply_text(analysis, parse_mode='Markdown')
+        # Si le message est trop long pour Telegram, le découper
+        if len(analysis) > 4000:
+            # Envoyer la première partie
+            await update.message.reply_text(analysis[:4000], parse_mode='Markdown')
+            # Envoyer la suite
+            await update.message.reply_text(
+                analysis[4000:] + "\n\n✅ _Analyse terminée_",
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(analysis, parse_mode='Markdown')
         
     except Exception as e:
         logger.error(f"Erreur analyse: {e}")
