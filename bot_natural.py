@@ -724,7 +724,7 @@ async def analyze_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, do
     )
 
 async def quiz_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_name: str):
-    """Quiz en langage naturel"""
+    """Quiz en langage naturel avec vrais quiz Telegram"""
     if not documents_cache:
         await update.message.reply_text(
             "📝 Pas de documents pour faire un quiz !\n"
@@ -734,7 +734,8 @@ async def quiz_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_n
         return
     
     await update.message.reply_text(
-        f"✏️ *Je prépare un quiz{f' sur {doc_name}' if doc_name else ''}...*",
+        f"✏️ *Je prépare un quiz interactif{f' sur {doc_name}' if doc_name else ''}...*\n\n"
+        "_Les questions vont arriver une par une !_",
         parse_mode='Markdown'
     )
     
@@ -746,24 +747,109 @@ async def quiz_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_n
     # Utiliser ChatPDF
     if doc_name and doc_name in chatpdf_sources:
         logger.info(f"Génération quiz ChatPDF pour {doc_name}")
+        
+        # Demander à ChatPDF de créer des questions au format JSON
         chatpdf_result = await ask_chatpdf(
             chatpdf_sources[doc_name],
-            "Crée un QCM de 5 questions sur ce document. Pour chaque question, propose 4 réponses (A, B, C, D) avec une seule bonne réponse. À la fin, indique les bonnes réponses avec une brève explication. Sois précis et base-toi sur le contenu exact du document."
+            """Crée 3 questions de quiz sur ce document. 
+            Pour CHAQUE question, fournis EXACTEMENT ce format:
+            
+            QUESTION: [La question]
+            REPONSE_A: [Option A]
+            REPONSE_B: [Option B]
+            REPONSE_C: [Option C]
+            REPONSE_D: [Option D]
+            CORRECTE: [A, B, C ou D]
+            EXPLICATION: [Courte explication]
+            
+            Sépare chaque question par une ligne vide. Base-toi sur le contenu exact du document."""
         )
         
         if chatpdf_result:
-            formatted_quiz = f"🎯 *Quiz sur {doc_name}*\n\n"
-            formatted_quiz += chatpdf_result
-            formatted_quiz += "\n\n_Dis \"nouveau quiz\" pour un autre !_"
+            # Parser les questions
+            questions = []
+            current_q = {}
             
-            await update.message.reply_text(formatted_quiz, parse_mode='Markdown')
+            for line in chatpdf_result.split('\n'):
+                line = line.strip()
+                if line.startswith('QUESTION:'):
+                    if current_q:
+                        questions.append(current_q)
+                    current_q = {'question': line.replace('QUESTION:', '').strip()}
+                elif line.startswith('REPONSE_A:'):
+                    current_q['A'] = line.replace('REPONSE_A:', '').strip()
+                elif line.startswith('REPONSE_B:'):
+                    current_q['B'] = line.replace('REPONSE_B:', '').strip()
+                elif line.startswith('REPONSE_C:'):
+                    current_q['C'] = line.replace('REPONSE_C:', '').strip()
+                elif line.startswith('REPONSE_D:'):
+                    current_q['D'] = line.replace('REPONSE_D:', '').strip()
+                elif line.startswith('CORRECTE:'):
+                    current_q['correct'] = line.replace('CORRECTE:', '').strip()
+                elif line.startswith('EXPLICATION:'):
+                    current_q['explanation'] = line.replace('EXPLICATION:', '').strip()
+            
+            if current_q:
+                questions.append(current_q)
+            
+            # Envoyer les quiz Telegram
+            for i, q in enumerate(questions[:3]):  # Limiter à 3 questions
+                if all(k in q for k in ['question', 'A', 'B', 'C', 'D', 'correct']):
+                    try:
+                        # Préparer les options
+                        options = [q['A'], q['B'], q['C'], q['D']]
+                        correct_index = ord(q['correct'].upper()) - ord('A')
+                        
+                        # Envoyer le quiz
+                        await update.message.reply_poll(
+                            question=f"❓ Question {i+1}: {q['question']}",
+                            options=options,
+                            type='quiz',
+                            correct_option_id=correct_index,
+                            explanation=q.get('explanation', f"La bonne réponse est {q['correct']}"),
+                            is_anonymous=False,
+                            allows_multiple_answers=False
+                        )
+                        
+                        # Petite pause entre les questions
+                        await asyncio.sleep(1)
+                        
+                    except Exception as e:
+                        logger.error(f"Erreur envoi quiz: {e}")
+            
+            # Message de fin
+            await update.message.reply_text(
+                f"✅ *Quiz terminé !*\n\n"
+                f"C'était un quiz sur *{doc_name}*\n\n"
+                f"_Dis \"nouveau quiz\" pour recommencer !_",
+                parse_mode='Markdown'
+            )
             return
-    
-    # Si pas de document sur ChatPDF
-    await update.message.reply_text(
-        "❌ *Aucun document disponible sur ChatPDF pour créer un quiz*\n\n"
-        "💡 Synchronise tes documents d'abord !",
-        parse_mode='Markdown'
+        
+        # Si échec du parsing, envoyer un quiz simple
+        await quiz_simple_fallback(update, context, doc_name)
+    else:
+        await update.message.reply_text(
+            "❌ *Aucun document disponible sur ChatPDF pour créer un quiz*\n\n"
+            "💡 Synchronise tes documents d'abord !",
+            parse_mode='Markdown'
+        )
+
+async def quiz_simple_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_name: str):
+    """Quiz de secours si le parsing échoue"""
+    # Créer un quiz simple de démonstration
+    await update.message.reply_poll(
+        question="❓ Qu'est-ce qu'une zone dangereuse ?",
+        options=[
+            "Un endroit avec des animaux",
+            "Une zone où les agents risquent d'être heurtés par une circulation",
+            "Une zone de repos",
+            "Un parking"
+        ],
+        type='quiz',
+        correct_option_id=1,
+        explanation="Une zone dangereuse est une zone où les agents risquent d'être heurtés par une circulation ferroviaire.",
+        is_anonymous=False
     )
 
 async def flashcards_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_name: str):
