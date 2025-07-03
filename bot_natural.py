@@ -135,12 +135,15 @@ def extract_document_name(message: str) -> str:
 def extract_concept(message: str) -> str:
     """Extrait le concept ou sujet à expliquer"""
     patterns = [
-        r'explique\s+(?:moi\s+)?(.+)',
-        r'c\'est quoi\s+(.+)',
-        r'qu\'est-ce que\s+(.+)',
+        r'explique[\s-]*(?:moi\s+)?(.+)',
+        r'c\'est\s+quoi\s+(.+)',
+        r'qu\'est[\s-]*ce\s+que\s+(.+)',
         r'cherche\s+(.+?)(?:\s+dans|$)',
         r'trouve\s+(.+?)(?:\s+dans|$)',
-        r'sur\s+(.+?)(?:\s+dans|$)'
+        r'sur\s+(.+?)(?:\s+dans|$)',
+        r'définition\s+(?:de\s+)?(.+)',
+        r'role\s+(?:de\s+)?(.+)',
+        r'qu\'est\s+ce\s+qu[\'e]\s+(.+)'
     ]
     
     message_lower = message.lower()
@@ -150,7 +153,22 @@ def extract_concept(message: str) -> str:
             concept = match.group(1).strip()
             # Nettoyer le concept
             concept = concept.replace('?', '').replace('.', '').strip()
+            # Enlever les mots vides à la fin
+            concept = re.sub(r'\s+(dans|sur|avec|pour|par)\s*$', '', concept)
             return concept
+    
+    # Si aucun pattern ne match, essayer de deviner le concept
+    # après des mots clés comme "explique"
+    keywords = ['explique', 'définition', 'c\'est quoi', 'qu\'est-ce']
+    for keyword in keywords:
+        if keyword in message_lower:
+            # Prendre tout ce qui suit le mot clé
+            index = message_lower.find(keyword) + len(keyword)
+            potential_concept = message[index:].strip()
+            # Enlever "moi" s'il est au début
+            potential_concept = re.sub(r'^[\s-]*moi\s+', '', potential_concept)
+            if potential_concept:
+                return potential_concept.replace('?', '').replace('.', '').strip()
     
     return None
 
@@ -389,6 +407,10 @@ async def handle_natural_language(update: Update, context: ContextTypes.DEFAULT_
         await flashcards_natural(update, context, doc_name)
     
     elif intent == 'explain':
+        # Si pas de concept extrait, utiliser le message complet
+        if not concept:
+            # Essayer de nettoyer le message
+            concept = message.replace("explique-moi", "").replace("explique", "").strip()
         await explain_natural(update, context, concept)
     
     elif intent == 'mindmap':
@@ -789,6 +811,10 @@ async def explain_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, co
             parse_mode='Markdown'
         )
         return
+    
+    logger.info(f"Explication demandée pour : '{concept}'")
+    logger.info(f"ChatPDF disponible : {bool(CHATPDF_KEY)}")
+    logger.info(f"Documents sur ChatPDF : {list(chatpdf_sources.keys())}")
     
     await update.message.reply_text(
         f"🎓 *Je t'explique \"{concept}\"...*",
