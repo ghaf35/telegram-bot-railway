@@ -43,6 +43,76 @@ logger.info("✅ ChatPDF API Key détectée")
 documents_cache = {}
 chatpdf_sources = {}  # Stocke les sourceId ChatPDF
 
+# Fonction de synchronisation automatique au démarrage
+async def auto_sync_at_startup():
+    """Synchronise automatiquement les documents au démarrage du bot"""
+    logger.info("🔄 Synchronisation automatique au démarrage...")
+    
+    try:
+        # Vider le cache
+        documents_cache.clear()
+        chatpdf_sources.clear()
+        
+        # Headers pour l'API GitHub
+        headers = {"Accept": "application/vnd.github.v3+json"}
+        
+        # Récupérer la liste des fichiers
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/contents"
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code != 200:
+            logger.error(f"❌ Erreur GitHub : {response.status_code}")
+            return False
+        
+        files = response.json()
+        loaded = 0
+        
+        # Charger chaque fichier
+        for file in files:
+            if file['name'].endswith(('.pdf', '.txt', '.md')):
+                try:
+                    # Télécharger le fichier
+                    file_response = requests.get(file['download_url'])
+                    
+                    if file['name'].endswith('.pdf'):
+                        # Lire le PDF
+                        pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_response.content))
+                        text = ""
+                        for page in pdf_reader.pages:
+                            text += page.extract_text() + "\n"
+                        
+                        # Si ChatPDF est disponible, uploader
+                        if CHATPDF_KEY:
+                            raw_url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/{file['name']}"
+                            source_id = await upload_to_chatpdf(raw_url, file['name'])
+                            if source_id:
+                                logger.info(f"✅ {file['name']} uploadé sur ChatPDF")
+                    else:
+                        # Fichier texte
+                        text = file_response.text
+                    
+                    # Stocker en cache
+                    documents_cache[file['name']] = text
+                    loaded += 1
+                    logger.info(f"✅ Document chargé : {file['name']}")
+                    
+                except Exception as e:
+                    logger.error(f"❌ Erreur avec {file['name']}: {e}")
+        
+        if loaded > 0:
+            logger.info(f"✅ Synchronisation automatique terminée : {loaded} documents")
+            logger.info(f"📚 Documents disponibles : {list(documents_cache.keys())}")
+            if chatpdf_sources:
+                logger.info(f"🤖 Documents sur ChatPDF : {list(chatpdf_sources.keys())}")
+            return True
+        else:
+            logger.warning("⚠️ Aucun document trouvé lors de la synchronisation automatique")
+            return False
+            
+    except Exception as e:
+        logger.error(f"❌ Erreur synchronisation automatique : {e}")
+        return False
+
 # Fonction pour détecter l'intention de l'utilisateur
 def detect_intent(message: str) -> dict:
     """Détecte ce que l'utilisateur veut faire à partir du langage naturel"""
@@ -272,27 +342,44 @@ async def ask_chatpdf(source_id: str, question: str) -> str:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Message de bienvenue"""
     logger.info(f"Commande /start de {update.effective_user.username}")
-    message = """
+    
+    # Message différent selon si les documents sont déjà chargés
+    if documents_cache:
+        message = f"""
 🤖 *Salut ! Je suis ton assistant intelligent !*
 
-Je comprends le langage naturel ! Tu peux me parler normalement 💬
+✅ *Tes documents sont déjà chargés !* ({len(documents_cache)} fichiers)
+Je suis prêt à répondre à tes questions 📚
 
 ━━━━━━━━━━━━━━━━━━━━━
 
-📚 *Exemples de phrases :*
-• "Montre-moi mes documents"
-• "Résume le guide de sécurité"
-• "Cherche les tâches ESS"
-• "Fais-moi un quiz sur la sécurité"
-• "Explique-moi les annonces"
-• "C'est quoi une tâche de sécurité ?"
+💬 *Pose-moi directement ta question !*
+
+Exemples :
+• "C'est quoi une zone dangereuse ?"
+• "Explique-moi les tâches ESS"
+• "Quelles sont les règles de sécurité ?"
+• "Fais-moi un quiz"
+• "Résume TESM.pdf"
+
+━━━━━━━━━━━━━━━━━━━━━
+
+🔄 _Documents synchronisés automatiquement au démarrage_
+"""
+    else:
+        message = """
+🤖 *Salut ! Je suis ton assistant intelligent !*
+
+⚠️ *Aucun document chargé pour le moment*
 
 ━━━━━━━━━━━━━━━━━━━━━
 
 💡 *Pour commencer :*
 Dis-moi "synchronise mes documents" ou tape `/synchroniser`
 
-🔤 *Les commandes classiques marchent toujours !*
+Je pourrai ensuite répondre à toutes tes questions sur la sécurité ferroviaire !
+
+━━━━━━━━━━━━━━━━━━━━━
 """
     await update.message.reply_text(message, parse_mode='Markdown')
 
@@ -300,12 +387,23 @@ Dis-moi "synchronise mes documents" ou tape `/synchroniser`
 async def sync_github(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Synchroniser avec GitHub"""
     logger.info("Synchronisation GitHub demandée")
-    await update.message.reply_text(
-        f"🔄 *Synchronisation en cours...*\n\n"
-        f"📂 Repository : `{GITHUB_REPO}`\n"
-        f"⏳ Recherche des documents...",
-        parse_mode='Markdown'
-    )
+    
+    # Message différent si c'est une resynchronisation
+    if documents_cache:
+        await update.message.reply_text(
+            f"🔄 *Resynchronisation en cours...*\n\n"
+            f"📂 Repository : `{GITHUB_REPO}`\n"
+            f"📚 Documents actuels : {len(documents_cache)}\n"
+            f"⏳ Mise à jour...",
+            parse_mode='Markdown'
+        )
+    else:
+        await update.message.reply_text(
+            f"🔄 *Synchronisation en cours...*\n\n"
+            f"📂 Repository : `{GITHUB_REPO}`\n"
+            f"⏳ Recherche des documents...",
+            parse_mode='Markdown'
+        )
     
     try:
         # Vider le cache avant de synchroniser
@@ -1020,6 +1118,17 @@ def main():
         # Créer l'application
         app = Application.builder().token(TELEGRAM_TOKEN).build()
         
+        # Synchronisation automatique au démarrage
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        sync_result = loop.run_until_complete(auto_sync_at_startup())
+        
+        if sync_result:
+            logger.info("✅ Documents prêts ! Le bot peut répondre aux questions.")
+        else:
+            logger.warning("⚠️ Synchronisation automatique échouée, utilisez /synchroniser")
+        
         # Handlers de commandes (compatibilité)
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("aide", aide_command))
@@ -1034,6 +1143,19 @@ def main():
             filters.TEXT & ~filters.COMMAND, 
             handle_natural_language
         ))
+        
+        # Synchronisation périodique (optionnel - toutes les heures)
+        from telegram.ext import JobQueue
+        job_queue = app.job_queue
+        
+        async def periodic_sync(context):
+            """Synchronisation périodique silencieuse"""
+            logger.info("🔄 Synchronisation périodique automatique...")
+            await auto_sync_at_startup()
+        
+        # Programmer une synchronisation toutes les heures
+        job_queue.run_repeating(periodic_sync, interval=3600, first=3600)
+        logger.info("⏰ Synchronisation automatique programmée toutes les heures")
         
         # Démarrer
         logger.info("✅ Bot démarré ! Langage naturel activé 🗣️")
