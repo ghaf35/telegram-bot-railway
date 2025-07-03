@@ -81,7 +81,9 @@ async def generate_audio(text: str, voice_id: str = "21m00Tcm4TlvDq8ikWAM") -> b
         return audio_bytes
         
     except Exception as e:
-        logger.error(f"Erreur génération audio: {e}")
+        logger.error(f"Erreur génération audio ElevenLabs: {str(e)}")
+        logger.error(f"Type d'erreur: {type(e).__name__}")
+        logger.error(f"Voice ID utilisé: {voice_id}")
         return None
 
 # Commande /start
