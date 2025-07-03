@@ -63,20 +63,20 @@ Je peux lire tes documents sur GitHub et répondre à tes questions 📖
 
 📚 *Comment ça marche :*
 • Mets tes cours sur GitHub
-• Lance `/sync` pour les charger
+• Lance `/synchroniser` pour les charger
 • Pose-moi tes questions !
 
 🎯 *Commandes disponibles :*
-• `/sync` → Charger tes documents
-• `/list` → Voir les documents
-• `/search [texte]` → Rechercher dans les docs
-• `/summary [nom]` → Résumé rapide
-• `/analyze [nom]` → Analyse complète
-• `/quiz [nom]` → Générer un QCM
-• `/flashcards [nom]` → Cartes de révision
-• `/explain [concept]` → Explication simple
-• `/mindmap [nom]` → Carte mentale
-• `/help` → Aide et configuration
+• `/synchroniser` → Charger tes documents
+• `/liste` → Voir les documents
+• `/recherche [texte]` → Rechercher dans les docs
+• `/resumer [nom]` → Résumé rapide
+• `/analyser [nom]` → Analyse complète
+• `/quiz` → Générer un QCM
+• `/cartes [nom]` → Cartes de révision
+• `/expliquer [concept]` → Explication simple
+• `/carte_mentale [nom]` → Carte mentale
+• `/aide` → Aide et configuration
 
 ━━━━━━━━━━━━━━━━━━━━━
 
@@ -101,21 +101,23 @@ Mets à jour la variable `GITHUB_REPO` dans Railway
 🆘 *Besoin d'aide ?*
 • Vérifie que ton repo est public
 • Les fichiers doivent être des PDF ou TXT
-• Lance `/sync` après avoir ajouté des fichiers
+• Lance `/synchroniser` après avoir ajouté des fichiers
 
 📋 *Autres commandes :*
-• `/search [texte]` → Rechercher un mot/phrase
-• `/summary [nom]` → Résumé rapide d'un document
-• `/analyze [nom]` → Analyse approfondie
-• `/list` → Voir tous les documents
+• `/recherche [texte]` → Rechercher un mot/phrase
+• `/resumer [nom]` → Résumé rapide d'un document
+• `/analyser [nom]` → Analyse approfondie
+• `/liste` → Voir tous les documents
 
 🎓 *Fonctions d'apprentissage :*
 • `/quiz [nom]` → QCM sur un document
-• `/flashcards [nom]` → Cartes de révision
-• `/explain [concept]` → Explication simplifiée
-• `/mindmap [nom]` → Carte mentale visuelle
+• `/cartes [nom]` → Cartes de révision
+• `/expliquer [concept]` → Explication simplifiée
+• `/carte_mentale [nom]` → Carte mentale visuelle
 
-💡 _Conseil : Utilise `/summary` pour un aperçu rapide !_
+💡 _Conseil : Utilise `/resumer` pour un aperçu rapide !_
+
+🔤 _Les commandes anglaises marchent aussi !_
 """
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
@@ -184,7 +186,7 @@ async def sync_github(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"✅ *Synchronisation terminée !*\n\n"
                 f"📚 *{loaded} documents chargés*\n"
                 f"🎯 Tu peux maintenant me poser des questions !\n\n"
-                f"💡 _Utilise `/list` pour voir les documents_",
+                f"💡 _Utilise `/liste` pour voir les documents_",
                 parse_mode='Markdown'
             )
         else:
@@ -204,7 +206,7 @@ async def list_docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not documents_cache:
         await update.message.reply_text(
             "📂 *Aucun document chargé*\n\n"
-            "Utilise `/sync` pour charger tes documents depuis GitHub !",
+            "Utilise `/synchroniser` pour charger tes documents depuis GitHub !",
             parse_mode='Markdown'
         )
         return
@@ -232,8 +234,8 @@ async def search_in_docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Rechercher un texte dans les documents"""
     if not context.args:
         await update.message.reply_text(
-            "🔍 *Utilisation :* `/search [mot ou phrase]`\n\n"
-            "Exemple : `/search photosynthèse`",
+            "🔍 *Utilisation :* `/recherche [mot ou phrase]`\n\n"
+            "Exemple : `/recherche photosynthèse`",
             parse_mode='Markdown'
         )
         return
@@ -244,7 +246,7 @@ async def search_in_docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not documents_cache:
         await update.message.reply_text(
             "📂 *Aucun document chargé*\n\n"
-            "Utilise `/sync` d'abord !",
+            "Utilise `/synchroniser` d'abord !",
             parse_mode='Markdown'
         )
         return
@@ -323,19 +325,19 @@ async def analyze_docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not documents_cache:
         await update.message.reply_text(
             "📂 *Aucun document disponible*\n\n"
-            "Utilise `/sync` pour charger des documents !",
+            "Utilise `/synchroniser` pour charger des documents !",
             parse_mode='Markdown'
         )
         return
     
     # Si pas d'argument, montrer l'usage
     if not context.args:
-        message = "📊 *Utilisation :* `/analyze [nom du document]`\n\n"
+        message = "📊 *Utilisation :* `/analyser [nom du document]`\n\n"
         message += "*Documents disponibles :*\n"
         for doc_name in documents_cache.keys():
             emoji = "📕" if doc_name.endswith('.pdf') else "📄"
             message += f"{emoji} `{doc_name}`\n"
-        message += "\n_Exemple :_ `/analyze document.pdf`"
+        message += "\n_Exemple :_ `/analyser document.pdf`"
         await update.message.reply_text(message, parse_mode='Markdown')
         return
     
@@ -352,7 +354,7 @@ async def analyze_docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not found_doc:
         await update.message.reply_text(
             f"❌ *Document non trouvé :* `{doc_name}`\n\n"
-            f"Utilise `/list` pour voir les documents disponibles",
+            f"Utilise `/liste` pour voir les documents disponibles",
             parse_mode='Markdown'
         )
         return
@@ -482,7 +484,7 @@ async def quiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not documents_cache:
         await update.message.reply_text(
             "📂 *Aucun document disponible*\n\n"
-            "Utilise `/sync` pour charger des documents !",
+            "Utilise `/synchroniser` pour charger des documents !",
             parse_mode='Markdown'
         )
         return
@@ -584,7 +586,7 @@ D) [Réponse D]
 4. [Lettre] - [Explication courte]
 5. [Lettre] - [Explication courte]
 
-_Tape_ `/quiz` _pour un nouveau quiz !_
+_Tape_ `/quiz` ou `/qcm` _pour un nouveau quiz !_
 
 Contenu à analyser :
 {content_for_quiz}"""
@@ -615,19 +617,19 @@ async def flashcards_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not documents_cache:
         await update.message.reply_text(
             "📂 *Aucun document disponible*\n\n"
-            "Utilise `/sync` pour charger des documents !",
+            "Utilise `/synchroniser` pour charger des documents !",
             parse_mode='Markdown'
         )
         return
     
     # Si pas d'argument, montrer l'usage
     if not context.args:
-        message = "🗂️ *Utilisation :* `/flashcards [nom du document]`\n\n"
+        message = "🗂️ *Utilisation :* `/cartes [nom du document]`\n\n"
         message += "*Documents disponibles :*\n"
         for doc_name in documents_cache.keys():
             emoji = "📕" if doc_name.endswith('.pdf') else "📄"
             message += f"{emoji} `{doc_name}`\n"
-        message += "\n_Exemple :_ `/flashcards document.pdf`"
+        message += "\n_Exemple :_ `/cartes document.pdf`"
         await update.message.reply_text(message, parse_mode='Markdown')
         return
     
@@ -714,11 +716,11 @@ async def explain_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Expliquer un concept de manière simple"""
     if not context.args:
         await update.message.reply_text(
-            "🎓 *Utilisation :* `/explain [concept]`\n\n"
+            "🎓 *Utilisation :* `/expliquer [concept]`\n\n"
             "Exemples :\n"
-            "• `/explain photosynthèse`\n"
-            "• `/explain développement durable`\n"
-            "• `/explain coopération internationale`",
+            "• `/expliquer photosynthèse`\n"
+            "• `/expliquer développement durable`\n"
+            "• `/expliquer coopération internationale`",
             parse_mode='Markdown'
         )
         return
@@ -802,14 +804,14 @@ async def mindmap_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not documents_cache:
         await update.message.reply_text(
             "📂 *Aucun document disponible*\n\n"
-            "Utilise `/sync` pour charger des documents !",
+            "Utilise `/synchroniser` pour charger des documents !",
             parse_mode='Markdown'
         )
         return
     
     # Si pas d'argument, montrer l'usage
     if not context.args:
-        message = "🧠 *Utilisation :* `/mindmap [nom du document]`\n\n"
+        message = "🧠 *Utilisation :* `/carte_mentale [nom du document]`\n\n"
         message += "*Crée une carte mentale du document*\n\n"
         message += "Documents disponibles :\n"
         for doc_name in list(documents_cache.keys())[:5]:  # Max 5
@@ -902,16 +904,16 @@ async def summary_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not documents_cache:
         await update.message.reply_text(
             "📂 *Aucun document disponible*\n\n"
-            "Utilise `/sync` pour charger des documents !",
+            "Utilise `/synchroniser` pour charger des documents !",
             parse_mode='Markdown'
         )
         return
     
     # Si pas d'argument, montrer l'usage
     if not context.args:
-        message = "📄 *Utilisation :* `/summary [nom du document]`\n\n"
+        message = "📄 *Utilisation :* `/resumer [nom du document]`\n\n"
         message += "*Pour un résumé rapide d'un document*\n"
-        message += "_Exemple :_ `/summary document.pdf`"
+        message += "_Exemple :_ `/resumer document.pdf`"
         await update.message.reply_text(message, parse_mode='Markdown')
         return
     
@@ -1113,7 +1115,7 @@ Aucun document n'est chargé. Réponds EXACTEMENT avec ce format :
 Je ne peux pas répondre à ta question car aucun document n'est chargé.
 
 *💡 Que faire ?*
-• Utilise la commande `/sync` pour charger tes documents
+• Utilise la commande `/synchroniser` pour charger tes documents
 • Assure-toi d'avoir des fichiers dans ton repo GitHub
 • Puis repose ta question !
 
@@ -1151,17 +1153,27 @@ def main():
         # Créer l'application
         app = Application.builder().token(TELEGRAM_TOKEN).build()
         
-        # Ajouter les handlers
+        # Ajouter les handlers - Commandes en français et anglais
         app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("aide", help_github))
         app.add_handler(CommandHandler("help", help_github))
+        app.add_handler(CommandHandler("synchroniser", sync_github))
         app.add_handler(CommandHandler("sync", sync_github))
+        app.add_handler(CommandHandler("liste", list_docs))
         app.add_handler(CommandHandler("list", list_docs))
+        app.add_handler(CommandHandler("recherche", search_in_docs))
         app.add_handler(CommandHandler("search", search_in_docs))
+        app.add_handler(CommandHandler("analyser", analyze_docs))
         app.add_handler(CommandHandler("analyze", analyze_docs))
+        app.add_handler(CommandHandler("resumer", summary_doc))
         app.add_handler(CommandHandler("summary", summary_doc))
         app.add_handler(CommandHandler("quiz", quiz_command))
+        app.add_handler(CommandHandler("qcm", quiz_command))
+        app.add_handler(CommandHandler("cartes", flashcards_command))
         app.add_handler(CommandHandler("flashcards", flashcards_command))
+        app.add_handler(CommandHandler("expliquer", explain_command))
         app.add_handler(CommandHandler("explain", explain_command))
+        app.add_handler(CommandHandler("carte_mentale", mindmap_command))
         app.add_handler(CommandHandler("mindmap", mindmap_command))
         
         # Messages texte
