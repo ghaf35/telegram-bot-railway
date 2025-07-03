@@ -316,15 +316,24 @@ async def ask_chatpdf(source_id: str, question: str) -> str:
                 if lines and '✅' in lines[-1] and 'ChatPDF' in lines[-1]:
                     content = '\n'.join(lines[:-1]).strip()
             
-            # Vérifier si le contenu se termine déjà par une référence de page (ex: P11)
-            # Si oui, ne pas ajouter de références supplémentaires
-            if not re.search(r'P\d+\.?\s*$', content):
-                # Formatter avec les références seulement si pas déjà présentes
-                if 'references' in result and result['references']:
-                    content += "\n\n📄 *Sources :*\n"
-                    for ref in result['references']:
-                        if 'pageNumber' in ref:
-                            content += f"• Page {ref['pageNumber']}\n"
+            # Déplacer les références de page (P11, P12, etc.) après le point final
+            # Chercher et extraire toutes les références de page dans le texte
+            page_refs = re.findall(r'\s*P\d+', content)
+            if page_refs:
+                # Supprimer les références du milieu du texte
+                content = re.sub(r'\s*P\d+', '', content)
+                # Ajouter un point si nécessaire
+                if not content.rstrip().endswith('.'):
+                    content = content.rstrip() + '.'
+                # Ajouter les références à la fin
+                content += ' ' + ' '.join(page_refs)
+            
+            # Si pas de références inline, vérifier si on doit ajouter depuis les métadonnées
+            elif 'references' in result and result['references']:
+                content += "\n\n📄 *Sources :*\n"
+                for ref in result['references']:
+                    if 'pageNumber' in ref:
+                        content += f"• Page {ref['pageNumber']}\n"
             
             return content
         else:
