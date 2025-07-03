@@ -1143,17 +1143,9 @@ def main():
         ))
         
         # Synchronisation périodique (optionnel - toutes les heures)
-        from telegram.ext import JobQueue
-        job_queue = app.job_queue
-        
-        async def periodic_sync(context):
-            """Synchronisation périodique silencieuse"""
-            logger.info("🔄 Synchronisation périodique automatique...")
-            await auto_sync_at_startup()
-        
-        # Programmer une synchronisation toutes les heures
-        job_queue.run_repeating(periodic_sync, interval=3600, first=3600)
-        logger.info("⏰ Synchronisation automatique programmée toutes les heures")
+        # Désactivé pour l'instant car nécessite une installation supplémentaire
+        # Si besoin plus tard, installer avec: pip install "python-telegram-bot[job-queue]"
+        logger.info("ℹ️ Synchronisation périodique désactivée (optionnelle)")
         
         # Démarrer
         logger.info("✅ Bot démarré ! Langage naturel activé 🗣️")
