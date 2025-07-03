@@ -318,15 +318,15 @@ async def ask_chatpdf(source_id: str, question: str) -> str:
             
             # Déplacer les références de page (P11, P12, etc.) après le point final
             # Chercher et extraire toutes les références de page dans le texte
-            page_refs = re.findall(r'\s*P\d+', content)
+            page_refs = re.findall(r'P(\d+)', content)
             if page_refs:
                 # Supprimer les références du milieu du texte
                 content = re.sub(r'\s*P\d+', '', content)
                 # Ajouter un point si nécessaire
                 if not content.rstrip().endswith('.'):
                     content = content.rstrip() + '.'
-                # Ajouter les références à la fin
-                content += ' ' + ' '.join(page_refs)
+                # Ajouter les références à la ligne avec emoji
+                content += '\n\n📄 Page ' + ', '.join(page_refs)
             
             # Si pas de références inline, vérifier si on doit ajouter depuis les métadonnées
             elif 'references' in result and result['references']:
