@@ -87,37 +87,27 @@ Je peux lire tes documents sur GitHub et répondre à tes questions 📖
 # Commande /help
 async def help_github(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Aide pour configurer GitHub"""
-    help_text = f"""
-📝 *Configuration actuelle*
+    help_text = """
+📖 *Guide d'utilisation*
 
-🔗 *Repository :* `{GITHUB_REPO}`
-✅ *Statut :* Bot actif et prêt !
+• Lance `/synchroniser` pour télécharger les documents
 
-━━━━━━━━━━━━━━━━━━━━━
+👉 *Commandes :*
 
-💡 *Pour changer de repo :*
-Mets à jour la variable `GITHUB_REPO` dans Railway
-
-🆘 *Besoin d'aide ?*
-• Vérifie que ton repo est public
-• Les fichiers doivent être des PDF ou TXT
-• Lance `/synchroniser` après avoir ajouté des fichiers
-
-📋 *Autres commandes :*
-• `/recherche [texte]` → Rechercher un mot/phrase
-• `/resumer [nom]` → Résumé rapide d'un document
-• `/analyser [nom]` → Analyse approfondie
-• `/liste` → Voir tous les documents
+• `/liste` → Pour voir tous les documents 
+• `/recherche [texte]` → Pour rechercher un mot/phrase
+• `/resumer [nom]` → Pour un résumé rapide d'un document
+• `/analyser [nom]` → Pour une analyse approfondie d'un document
 
 🎓 *Fonctions d'apprentissage :*
-• `/quiz [nom]` → QCM sur un document
-• `/cartes [nom]` → Cartes de révision
-• `/expliquer [concept]` → Explication simplifiée
-• `/carte_mentale [nom]` → Carte mentale visuelle
+• `/quiz [nom du document]` → Créer un QCM sur un document
+• `/cartes [nom du document]` → Créer des cartes de révision
+• `/expliquer [ex : les tâches essentielles de sécurité]` → Avoir une explication simplifiée
+• `/carte_mentale [nom du document]` → Créer une carte mentale visuelle
 
-💡 _Conseil : Utilise `/resumer` pour un aperçu rapide !_
+💡 _Conseil : Utilise `/resumer` pour un aperçu rapide d'un document!_
 
-🔤 _Les commandes anglaises marchent aussi !_
+🔤 *Tu peux aussi poser des questions !*
 """
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
