@@ -16,7 +16,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import PyPDF2
 import io
-from quiz_predefined import get_random_quiz
+from quiz_predefined import get_random_quiz, get_full_quiz
 
 # Configuration du logging
 logging.basicConfig(
@@ -735,19 +735,20 @@ async def quiz_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_n
         )
         return
     
-    await update.message.reply_text(
-        f"✏️ *Je prépare un quiz interactif sur la sécurité ferroviaire !*\n\n"
-        "_3 questions vont arriver..._",
-        parse_mode='Markdown'
-    )
-    
-    # Utiliser les quiz prédéfinis
+    # Utiliser TOUTES les questions du quiz
     try:
-        quiz_questions = get_random_quiz()
+        quiz_questions = get_full_quiz()
         
+        await update.message.reply_text(
+            f"✏️ *Quiz complet sur la sécurité ferroviaire !*\n\n"
+            f"_📝 {len(quiz_questions)} questions vont arriver..._",
+            parse_mode='Markdown'
+        )
+        
+        # Envoyer TOUTES les questions
         for i, q in enumerate(quiz_questions):
             await update.message.reply_poll(
-                question=f"❓ Question {i+1}: {q['question']}",
+                question=f"❓ Question {i+1}/{len(quiz_questions)}: {q['question']}",
                 options=q['options'],
                 type='quiz',
                 correct_option_id=q['correct'],
@@ -757,13 +758,14 @@ async def quiz_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_n
             )
             
             # Petite pause entre les questions
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(1)
         
-        # Message de fin
+        # Message de fin avec score
         await update.message.reply_text(
-            "✅ *Quiz terminé !*\n\n"
-            "J'espère que ça t'a aidé à réviser ! 📚\n\n"
-            "_Dis \"nouveau quiz\" pour recommencer !_",
+            f"✅ *Quiz complet terminé !*\n\n"
+            f"Tu as répondu à *{len(quiz_questions)} questions* sur la sécurité ferroviaire 🚂\n\n"
+            f"💡 _Révise bien les explications pour ton test !_\n\n"
+            f"_Dis \"quiz\" pour recommencer !_",
             parse_mode='Markdown'
         )
         return
