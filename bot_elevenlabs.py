@@ -37,6 +37,8 @@ if not all([TELEGRAM_TOKEN, MISTRAL_KEY, ELEVENLABS_API_KEY]):
     sys.exit(1)
 
 logger.info(f"✅ Configuration OK - Repo: {GITHUB_REPO}")
+logger.info(f"✅ ElevenLabs API Key: {ELEVENLABS_API_KEY[:10]}...") # Affiche les 10 premiers caractères
+logger.info(f"✅ Agent ID: {ELEVENLABS_AGENT_ID if ELEVENLABS_AGENT_ID else 'Non défini'}")
 
 # Initialiser les clients
 try:
@@ -51,9 +53,16 @@ except Exception as e:
 documents_cache = {}
 
 # Fonction pour générer de l'audio avec ElevenLabs
-async def generate_audio(text: str, voice_id: str = "21m00Tcm4TlvDq8ikWAM") -> bytes:
+async def generate_audio(text: str, voice_id: str = None) -> bytes:
     """Générer un audio à partir du texte avec ElevenLabs"""
     try:
+        # Utiliser l'agent ID si disponible, sinon la voix par défaut
+        if ELEVENLABS_AGENT_ID:
+            voice_id = ELEVENLABS_AGENT_ID
+        elif not voice_id:
+            voice_id = "21m00Tcm4TlvDq8ikWAM"  # Rachel voice par défaut
+        
+        logger.info(f"Génération audio avec voice_id: {voice_id}")
         # Nettoyer le texte des emojis et markdown
         clean_text = text.replace("*", "").replace("_", "").replace("`", "")
         # Garder seulement les caractères ASCII et français
