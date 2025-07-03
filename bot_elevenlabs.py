@@ -14,9 +14,8 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from mistralai import Mistral
 import PyPDF2
-from elevenlabs import VoiceSettings
+from elevenlabs import VoiceSettings, play, save
 from elevenlabs.client import ElevenLabs
-import httpx
 
 # Configuration du logging
 logging.basicConfig(
@@ -75,39 +74,60 @@ async def generate_audio(text: str, voice_id: str = None) -> bytes:
         
         logger.info(f"Texte à convertir ({len(clean_text)} caractères): {clean_text[:100]}...")
         
-        # Alternative : utiliser directement l'API HTTP
-        headers = {
-            "Accept": "audio/mpeg",
-            "Content-Type": "application/json",
-            "xi-api-key": ELEVENLABS_API_KEY
-        }
-        
-        data = {
-            "text": clean_text,
-            "model_id": "eleven_multilingual_v2",
-            "voice_settings": {
-                "stability": 0.5,
-                "similarity_boost": 0.75,
-                "style": 0.5,
-                "use_speaker_boost": True
-            }
-        }
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
-                headers=headers,
-                json=data,
-                timeout=30.0
+        # Utiliser le SDK ElevenLabs correctement
+        try:
+            # Générer l'audio avec le SDK
+            audio_generator = elevenlabs_client.text_to_speech.convert(
+                text=clean_text,
+                voice_id=voice_id,
+                model_id="eleven_multilingual_v2",
+                voice_settings=VoiceSettings(
+                    stability=0.5,
+                    similarity_boost=0.75,
+                    style=0.0,
+                    use_speaker_boost=True
+                )
             )
             
-            if response.status_code == 200:
-                logger.info("Audio généré avec succès")
-                return response.content
-            else:
-                logger.error(f"Erreur API ElevenLabs: {response.status_code}")
-                logger.error(f"Réponse: {response.text}")
-                return None
+            # Convertir en bytes
+            audio_bytes = b"".join(audio_generator)
+            logger.info("Audio généré avec succès via SDK")
+            return audio_bytes
+            
+        except Exception as sdk_error:
+            logger.error(f"Erreur SDK ElevenLabs: {str(sdk_error)}")
+            # Fallback sur l'API HTTP si le SDK échoue
+            import httpx
+            headers = {
+                "Accept": "audio/mpeg",
+                "Content-Type": "application/json",
+                "xi-api-key": ELEVENLABS_API_KEY
+            }
+            
+            data = {
+                "text": clean_text,
+                "model_id": "eleven_multilingual_v2",
+                "voice_settings": {
+                    "stability": 0.5,
+                    "similarity_boost": 0.75
+                }
+            }
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+                    headers=headers,
+                    json=data,
+                    timeout=30.0
+                )
+                
+                if response.status_code == 200:
+                    logger.info("Audio généré avec succès via HTTP")
+                    return response.content
+                else:
+                    logger.error(f"Erreur API ElevenLabs: {response.status_code}")
+                    logger.error(f"Réponse: {response.text}")
+                    return None
         
     except Exception as e:
         logger.error(f"Erreur génération audio ElevenLabs: {str(e)}")
