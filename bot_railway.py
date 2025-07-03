@@ -378,17 +378,20 @@ async def analyze_docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             content_preview = content
         
-        # Demander à l'IA une analyse détaillée
-        prompt = f"""Tu dois analyser ce document et produire une analyse structurée.
-TRÈS IMPORTANT : Utilise le formatage Markdown Telegram avec *astérisques* pour mettre les titres en gras.
+        # Demander à l'IA une analyse détaillée et précise
+        prompt = f"""ANALYSE PRÉCISE ET DÉTAILLÉE du document.
 
-Document à analyser : {found_doc}
-Contenu :
+Document : {found_doc}
+Contenu complet :
 {content_preview}
 
-INSTRUCTIONS CRITIQUES DE FORMATAGE :
-- TOUS les titres doivent être entre astérisques : *Titre*
-- Utilise EXACTEMENT ce format, COPIE-COLLE la structure :
+INSTRUCTIONS CRITIQUES :
+1. Base-toi UNIQUEMENT sur le contenu réel du document
+2. Cite des passages EXACTS du document
+3. Ne suppose RIEN, n'invente RIEN
+4. Sois PRÉCIS et FACTUEL
+
+FORMAT OBLIGATOIRE (avec *astérisques* pour les titres) :
 
 *📊 Résumé exécutif*
 
@@ -1055,55 +1058,96 @@ async def answer_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         if documents_cache:
-            # Construire le contexte
+            # Construire le contexte avec recherche intelligente
             context_text = ""
-            for doc_name, content in documents_cache.items():
-                preview = content[:1500] + "..." if len(content) > 1500 else content
-                context_text += f"\n=== Document: {doc_name} ===\n{preview}\n"
+            question_lower = question.lower()
             
-            prompt = f"""Tu es un assistant qui répond aux questions d'un étudiant en te basant sur ses cours.
+            # D'abord, chercher les documents les plus pertinents
+            relevant_docs = []
+            for doc_name, content in documents_cache.items():
+                content_lower = content.lower()
+                # Score de pertinence basé sur les mots de la question
+                relevance_score = 0
+                for word in question_lower.split():
+                    if len(word) > 3:  # Ignorer les petits mots
+                        relevance_score += content_lower.count(word)
+                
+                if relevance_score > 0:
+                    relevant_docs.append((doc_name, content, relevance_score))
+            
+            # Trier par pertinence
+            relevant_docs.sort(key=lambda x: x[2], reverse=True)
+            
+            # Prendre les documents les plus pertinents (max 3)
+            for doc_name, content, score in relevant_docs[:3]:
+                # Extraire plus de contexte autour des mots clés
+                extract_length = min(3000, len(content))
+                
+                # Chercher les passages pertinents
+                passages = []
+                for word in question_lower.split():
+                    if len(word) > 3:
+                        index = content_lower.find(word)
+                        if index != -1:
+                            start = max(0, index - 500)
+                            end = min(len(content), index + 1000)
+                            passage = content[start:end]
+                            if passage not in passages:
+                                passages.append(passage)
+                
+                if passages:
+                    context_text += f"\n=== Document: {doc_name} ===\n"
+                    context_text += "\n--- Passages pertinents ---\n".join(passages[:3])
+                    context_text += "\n"
+                else:
+                    # Si pas de passages spécifiques, prendre le début
+                    context_text += f"\n=== Document: {doc_name} ===\n{content[:extract_length]}\n"
+            
+            # Si aucun document pertinent, prendre tous les documents
+            if not relevant_docs:
+                for doc_name, content in documents_cache.items():
+                    preview = content[:1500] + "..." if len(content) > 1500 else content
+                    context_text += f"\n=== Document: {doc_name} ===\n{preview}\n"
+            
+            prompt = f"""Tu es un assistant spécialisé qui DOIT répondre PRÉCISÉMENT aux questions en utilisant UNIQUEMENT les documents fournis.
 
-Voici les documents disponibles :
+DOCUMENTS DISPONIBLES :
 {context_text}
 
-Question de l'étudiant : {question}
+QUESTION : {question}
 
-EXEMPLE de réponse bien formatée :
+RÈGLES CRITIQUES :
+1. CONCENTRE-TOI à 100% sur la question posée
+2. Utilise UNIQUEMENT les informations des documents ci-dessus
+3. Cite TOUJOURS les passages exacts des documents
+4. Si la réponse n'est pas dans les documents, dis-le CLAIREMENT
+5. Sois PRÉCIS et DIRECT - pas de blabla général
 
-*📚 Réponse à ta question*
+FORMAT DE RÉPONSE OBLIGATOIRE :
 
-Voici ce que j'ai trouvé dans tes documents :
+*🎯 [Reformulation précise de la question]*
 
-• Premier point important
-• Deuxième point clé
-• Troisième élément
+*📍 Réponse directe :*
+[Réponse courte et précise à la question]
 
-*💡 Explication détaillée*
+*📄 Détails des documents :*
+• Citation 1 : "[texte exact du document]" _(page X ou section Y)_
+• Citation 2 : "[texte exact du document]" _(page X ou section Y)_
+• [Autres citations pertinentes]
 
-Plus de détails ici avec des exemples...
+*💡 Explication :*
+[Explication détaillée basée UNIQUEMENT sur les citations]
 
 ━━━━━━━━━━━━━━━━━━━━━
 
-*📖 Source :* _document.pdf_
+*📖 Sources utilisées :*
+• _[nom_document1.pdf]_ - [sections/pages citées]
+• _[nom_document2.pdf]_ - [sections/pages citées]
 
-INSTRUCTIONS IMPORTANTES pour le formatage :
-1. Réponds en te basant UNIQUEMENT sur les documents fournis
-2. Utilise le formatage Markdown de Telegram :
-   - *texte* pour le gras (utilise-le pour TOUS les titres)
-   - _texte_ pour l'italique
-   - `code` pour le code ou les termes techniques
-   - Utilise des emojis pertinents (📌, 💡, ✅, 📖, 🎯, 📚, ⚡, 🔍, etc.)
-3. Structure ta réponse OBLIGATOIREMENT comme ceci :
-   - *🎯 Titre principal* (toujours en gras avec emoji)
-   - Contenu avec bullet points • 
-   - *📌 Sous-titre* (toujours en gras avec emoji)
-   - Plus de contenu
-   - Utilise ━━━━━━━━━ pour séparer les sections
-4. À la fin, ajoute toujours :
-   - *📖 Source :* _(nom du document)_
-5. Si l'info n'est pas dans les docs :
-   - Commence par : *⚠️ Information non trouvée*
-   - Explique que tu ne peux répondre qu'avec les documents fournis"""
+IMPORTANT :
+- NE JAMAIS inventer ou supposer des informations
+- TOUJOURS citer le texte exact des documents
+- Si l'info n'existe pas, répondre : *⚠️ Cette information n'est pas dans les documents disponibles*"""
             
         else:
             prompt = f"""L'utilisateur demande : {question}
