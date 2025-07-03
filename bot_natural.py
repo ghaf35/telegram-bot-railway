@@ -760,15 +760,40 @@ async def quiz_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_n
             # Petite pause entre les questions
             await asyncio.sleep(1)
         
-        # Message de fin avec score
+        # Attendre un peu plus avant le message final
+        await asyncio.sleep(3)
+        
+        # Message de fin avec instructions
         await update.message.reply_text(
-            f"✅ *Quiz complet terminé !*\n\n"
-            f"Tu as répondu à *{len(quiz_questions)} questions* sur la sécurité ferroviaire 🚂\n\n"
-            f"💡 _Révise bien les explications pour ton test !_\n\n"
+            f"📊 *Quiz terminé !*\n\n"
+            f"Tu viens de recevoir *{len(quiz_questions)} questions* sur la sécurité ferroviaire.\n\n"
+            f"💡 *Important :*\n"
+            f"• Clique sur chaque question pour répondre\n"
+            f"• Note les questions où tu as eu faux\n"
+            f"• Relis bien les explications\n\n"
+            f"📚 *Pour réviser :*\n"
+            f"Demande-moi d'expliquer les concepts que tu n'as pas compris !\n"
+            f"_Exemple : \"Explique-moi la zone dangereuse\"_\n\n"
             f"_Dis \"quiz\" pour recommencer !_",
             parse_mode='Markdown'
         )
+        
+        # Envoyer un résumé des concepts importants
+        await asyncio.sleep(2)
+        await update.message.reply_text(
+            f"📖 *Concepts clés à réviser :*\n\n"
+            f"• *ASP* : Agent de Sécurité du Personnel\n"
+            f"• *Zone dangereuse* : 1,50m (V≤40) / 1,75m (40<V≤160)\n"
+            f"• *Délai de dégagement* : max 15 secondes (2ème catégorie)\n"
+            f"• *Délai d'annonce* : min 15s, max 60s\n"
+            f"• *PPSPS* : Plan Particulier de Sécurité et Protection de la Santé\n"
+            f"• *PGC* : Plan Général de Coordination\n"
+            f"• *CSF* : Consigne de Sécurité Ferroviaire\n\n"
+            f"💬 _Pose-moi des questions sur ces sujets !_",
+            parse_mode='Markdown'
+        )
         return
+        
     except Exception as e:
         logger.error(f"Erreur quiz prédéfini : {e}")
         # Continuer avec le quiz ChatPDF si erreur
