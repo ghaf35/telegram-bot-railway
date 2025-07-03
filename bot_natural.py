@@ -735,19 +735,40 @@ async def quiz_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_n
         )
         return
     
-    # Utiliser TOUTES les questions du quiz
+    # Utiliser TOUTES les questions du quiz avec suivi des scores
     try:
         quiz_questions = get_full_quiz()
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        
+        # Initialiser le suivi du quiz pour cet utilisateur
+        quiz_key = f"quiz_{chat_id}_{user_id}"
+        
+        # Stocker dans le contexte global
+        if not hasattr(context.application, 'quiz_data'):
+            context.application.quiz_data = {}
+        
+        context.application.quiz_data[quiz_key] = {
+            'questions': quiz_questions,
+            'scores': {},
+            'poll_ids': {},
+            'total': len(quiz_questions),
+            'answered': 0,
+            'correct': 0,
+            'wrong_answers': [],
+            'start_time': asyncio.get_event_loop().time()
+        }
         
         await update.message.reply_text(
             f"✏️ *Quiz complet sur la sécurité ferroviaire !*\n\n"
-            f"_📝 {len(quiz_questions)} questions vont arriver..._",
+            f"_📝 {len(quiz_questions)} questions vont arriver..._\n\n"
+            f"⚠️ *Réponds à chaque question pour voir ton score final !*",
             parse_mode='Markdown'
         )
         
-        # Envoyer TOUTES les questions
+        # Envoyer TOUTES les questions et stocker les poll IDs
         for i, q in enumerate(quiz_questions):
-            await update.message.reply_poll(
+            poll_msg = await update.message.reply_poll(
                 question=f"❓ Question {i+1}/{len(quiz_questions)}: {q['question']}",
                 options=q['options'],
                 type='quiz',
@@ -757,41 +778,24 @@ async def quiz_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_n
                 allows_multiple_answers=False
             )
             
+            # Stocker le poll ID avec l'index de la question
+            context.application.quiz_data[quiz_key]['poll_ids'][poll_msg.poll.id] = i
+            
             # Petite pause entre les questions
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.8)
         
-        # Attendre un peu plus avant le message final
-        await asyncio.sleep(3)
-        
-        # Message de fin avec instructions
+        # Message d'attente
         await update.message.reply_text(
-            f"📊 *Quiz terminé !*\n\n"
-            f"Tu viens de recevoir *{len(quiz_questions)} questions* sur la sécurité ferroviaire.\n\n"
-            f"💡 *Important :*\n"
-            f"• Clique sur chaque question pour répondre\n"
-            f"• Note les questions où tu as eu faux\n"
-            f"• Relis bien les explications\n\n"
-            f"📚 *Pour réviser :*\n"
-            f"Demande-moi d'expliquer les concepts que tu n'as pas compris !\n"
-            f"_Exemple : \"Explique-moi la zone dangereuse\"_\n\n"
-            f"_Dis \"quiz\" pour recommencer !_",
+            f"⏳ *Quiz envoyé !*\n\n"
+            f"Réponds à toutes les questions pour voir :\n"
+            f"• Ton score final\n"
+            f"• Les questions où tu as eu faux\n"
+            f"• Des recommandations personnalisées\n\n"
+            f"_Je compte tes réponses... 📊_",
             parse_mode='Markdown'
         )
         
-        # Envoyer un résumé des concepts importants
-        await asyncio.sleep(2)
-        await update.message.reply_text(
-            f"📖 *Concepts clés à réviser :*\n\n"
-            f"• *ASP* : Agent de Sécurité du Personnel\n"
-            f"• *Zone dangereuse* : 1,50m (V≤40) / 1,75m (40<V≤160)\n"
-            f"• *Délai de dégagement* : max 15 secondes (2ème catégorie)\n"
-            f"• *Délai d'annonce* : min 15s, max 60s\n"
-            f"• *PPSPS* : Plan Particulier de Sécurité et Protection de la Santé\n"
-            f"• *PGC* : Plan Général de Coordination\n"
-            f"• *CSF* : Consigne de Sécurité Ferroviaire\n\n"
-            f"💬 _Pose-moi des questions sur ces sujets !_",
-            parse_mode='Markdown'
-        )
+        logger.info(f"Quiz créé pour {user_id} avec {len(quiz_questions)} questions")
         return
         
     except Exception as e:
@@ -1268,6 +1272,130 @@ async def answer_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
 
+# Handler pour les réponses aux polls
+async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Gère les réponses aux quiz"""
+    if not update.poll_answer or not hasattr(context.application, 'quiz_data'):
+        return
+    
+    user_id = update.poll_answer.user.id
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    poll_id = update.poll_answer.poll_id
+    selected_options = update.poll_answer.option_ids
+    
+    # Trouver le quiz correspondant
+    quiz_key = None
+    quiz_data = None
+    
+    # Chercher dans tous les quiz actifs
+    for key, data in context.application.quiz_data.items():
+        if poll_id in data.get('poll_ids', {}):
+            quiz_key = key
+            quiz_data = data
+            break
+    
+    if not quiz_data:
+        return
+    
+    # Récupérer l'index de la question
+    question_index = quiz_data['poll_ids'][poll_id]
+    question = quiz_data['questions'][question_index]
+    
+    # Vérifier si c'est correct
+    is_correct = len(selected_options) > 0 and selected_options[0] == question['correct']
+    
+    # Mettre à jour les scores
+    quiz_data['scores'][question_index] = is_correct
+    quiz_data['answered'] += 1
+    
+    if is_correct:
+        quiz_data['correct'] += 1
+    else:
+        quiz_data['wrong_answers'].append({
+            'index': question_index,
+            'question': question['question'],
+            'user_answer': selected_options[0] if selected_options else None,
+            'correct_answer': question['correct'],
+            'correct_text': question['options'][question['correct']],
+            'explanation': question['explanation']
+        })
+    
+    logger.info(f"Réponse quiz: {quiz_data['answered']}/{quiz_data['total']} - Correct: {is_correct}")
+    
+    # Si toutes les questions sont répondues, afficher le score
+    if quiz_data['answered'] >= quiz_data['total']:
+        await show_quiz_results(update, context, quiz_key, quiz_data)
+
+async def show_quiz_results(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_key: str, quiz_data: dict):
+    """Affiche les résultats du quiz"""
+    try:
+        # Extraire chat_id du quiz_key
+        parts = quiz_key.split('_')
+        if len(parts) >= 3:
+            chat_id = int(parts[1])
+        else:
+            logger.error(f"Format de quiz_key invalide: {quiz_key}")
+            return
+        
+        score = quiz_data['correct']
+        total = quiz_data['total']
+        percentage = (score / total) * 100
+        
+        # Message de résultat
+        result_msg = f"🏆 *RÉSULTATS DU QUIZ*\n\n"
+        result_msg += f"📊 Score : *{score}/{total}* ({percentage:.0f}%)\n\n"
+        
+        # Emoji selon le score
+        if percentage >= 80:
+            result_msg += "🌟 *Excellent !* Tu maîtrises bien le sujet !\n"
+        elif percentage >= 60:
+            result_msg += "👍 *Bien !* Encore quelques points à réviser.\n"
+        elif percentage >= 40:
+            result_msg += "📚 *Pas mal !* Continue à réviser.\n"
+        else:
+            result_msg += "💪 *Courage !* Il faut réviser davantage.\n"
+        
+        # Temps écoulé
+        elapsed = asyncio.get_event_loop().time() - quiz_data['start_time']
+        minutes = int(elapsed // 60)
+        seconds = int(elapsed % 60)
+        result_msg += f"⏱️ Temps : {minutes}min {seconds}s\n"
+        
+        # Envoyer le message principal
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=result_msg,
+            parse_mode='Markdown'
+        )
+        
+        # Si des erreurs, afficher les recommandations
+        if quiz_data['wrong_answers']:
+            await asyncio.sleep(1)
+            
+            error_msg = "❌ *QUESTIONS À RÉVISER :*\n\n"
+            for error in quiz_data['wrong_answers'][:5]:  # Max 5 erreurs affichées
+                error_msg += f"*Question {error['index']+1} :* {error['question']}\n"
+                error_msg += f"❌ Ta réponse : {error['user_answer'] + 1 if error['user_answer'] is not None else '?'}\n"
+                error_msg += f"✅ Bonne réponse : {error['correct_answer'] + 1} - {error['correct_text']}\n"
+                error_msg += f"💡 {error['explanation']}\n\n"
+            
+            if len(quiz_data['wrong_answers']) > 5:
+                error_msg += f"_... et {len(quiz_data['wrong_answers']) - 5} autres erreurs_\n\n"
+            
+            error_msg += "📚 *Demande-moi d'expliquer ces concepts !*"
+            
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=error_msg,
+                parse_mode='Markdown'
+            )
+        
+        # Nettoyer les données du quiz
+        del context.application.quiz_data[quiz_key]
+        
+    except Exception as e:
+        logger.error(f"Erreur affichage résultats : {e}")
+
 # Garder les handlers de commandes pour la compatibilité
 async def aide_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Commande /aide"""
@@ -1322,6 +1450,10 @@ def main():
         # Désactivé pour l'instant car nécessite une installation supplémentaire
         # Si besoin plus tard, installer avec: pip install "python-telegram-bot[job-queue]"
         logger.info("ℹ️ Synchronisation périodique désactivée (optionnelle)")
+        
+        # Handler pour les réponses aux quiz
+        from telegram.ext import PollAnswerHandler
+        app.add_handler(PollAnswerHandler(handle_poll_answer))
         
         # Démarrer
         logger.info("✅ Bot démarré ! Langage naturel activé 🗣️")
