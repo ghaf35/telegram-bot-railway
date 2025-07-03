@@ -131,6 +131,10 @@ async def sync_github(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     try:
+        # Vider le cache avant de synchroniser
+        documents_cache.clear()
+        logger.info("Cache vidé - rechargement complet")
+        
         # Headers pour l'API GitHub
         headers = {"Accept": "application/vnd.github.v3+json"}
         
