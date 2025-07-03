@@ -497,6 +497,23 @@ async def summary_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, do
         parse_mode='Markdown'
     )
     
+    # PRIORITÉ : Utiliser ChatPDF si disponible
+    if CHATPDF_KEY and doc_name in chatpdf_sources:
+        logger.info(f"Utilisation de ChatPDF pour résumer {doc_name}")
+        chatpdf_result = await ask_chatpdf(
+            chatpdf_sources[doc_name],
+            "Fais un résumé concis de ce document en 3-4 points principaux. Sois clair et structuré."
+        )
+        
+        if chatpdf_result:
+            formatted_summary = f"📄 *Résumé de {doc_name}*\n\n"
+            formatted_summary += chatpdf_result
+            formatted_summary += f"\n\n✅ _Résumé généré par ChatPDF_"
+            
+            await update.message.reply_text(formatted_summary, parse_mode='Markdown')
+            return
+    
+    # Sinon utiliser Mistral
     try:
         content = documents_cache[doc_name]
         words = len(content.split())
@@ -563,21 +580,27 @@ async def analyze_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, do
         parse_mode='Markdown'
     )
     
-    # Utiliser ChatPDF si disponible pour une meilleure analyse
+    # TOUJOURS utiliser ChatPDF en priorité si disponible
     if CHATPDF_KEY and doc_name in chatpdf_sources:
+        logger.info(f"Analyse ChatPDF prioritaire pour {doc_name}")
         chatpdf_result = await ask_chatpdf(
             chatpdf_sources[doc_name],
-            "Fais une analyse détaillée de ce document avec les points clés, la structure et les éléments importants."
+            "Fais une analyse détaillée et structurée de ce document. Inclus : 1) Résumé exécutif 2) Objectifs principaux 3) Points clés détaillés 4) Structure du document 5) Éléments critiques à retenir. Sois très précis et cite des passages importants."
         )
         
         if chatpdf_result:
+            formatted_analysis = f"📊 *Analyse détaillée de {doc_name}*\n\n"
+            formatted_analysis += chatpdf_result
+            formatted_analysis += f"\n\n✅ _Analyse complète par ChatPDF_"
+            
             await update.message.reply_text(
-                f"📊 *Analyse de {doc_name}*\n\n{chatpdf_result}",
+                formatted_analysis,
                 parse_mode='Markdown'
             )
             return
     
-    # Sinon utiliser Mistral
+    # Mistral seulement si ChatPDF n'est pas disponible
+    logger.info("Utilisation de Mistral en recours pour l'analyse")
     try:
         content = documents_cache[doc_name]
         content_preview = content[:5000] if len(content) > 5000 else content
@@ -629,7 +652,23 @@ async def quiz_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_n
         parse_mode='Markdown'
     )
     
-    # Logique similaire à quiz_command mais avec messages naturels
+    # PRIORITÉ : ChatPDF pour des questions plus précises
+    if CHATPDF_KEY and doc_name and doc_name in chatpdf_sources:
+        logger.info(f"Génération quiz ChatPDF pour {doc_name}")
+        chatpdf_result = await ask_chatpdf(
+            chatpdf_sources[doc_name],
+            "Crée un QCM de 5 questions sur ce document. Pour chaque question, propose 4 réponses (A, B, C, D) avec une seule bonne réponse. À la fin, indique les bonnes réponses avec une brève explication. Sois précis et base-toi sur le contenu exact du document."
+        )
+        
+        if chatpdf_result:
+            formatted_quiz = f"🎯 *Quiz sur {doc_name}*\n\n"
+            formatted_quiz += chatpdf_result
+            formatted_quiz += "\n\n_Dis \"nouveau quiz\" pour un autre !_"
+            
+            await update.message.reply_text(formatted_quiz, parse_mode='Markdown')
+            return
+    
+    # Sinon utiliser Mistral
     if doc_name and doc_name in documents_cache:
         content = documents_cache[doc_name][:3000]
         doc_display = doc_name
@@ -756,7 +795,37 @@ async def explain_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, co
         parse_mode='Markdown'
     )
     
-    # Chercher dans les documents si disponibles
+    # PRIORITÉ : ChatPDF pour des explications basées sur les documents
+    if CHATPDF_KEY and chatpdf_sources:
+        # Chercher le document le plus pertinent
+        best_doc = None
+        best_score = 0
+        
+        for doc_name in chatpdf_sources.keys():
+            if doc_name in documents_cache:
+                content_lower = documents_cache[doc_name].lower()
+                if concept.lower() in content_lower:
+                    score = content_lower.count(concept.lower())
+                    if score > best_score:
+                        best_score = score
+                        best_doc = doc_name
+        
+        if best_doc:
+            logger.info(f"Explication ChatPDF avec {best_doc}")
+            chatpdf_result = await ask_chatpdf(
+                chatpdf_sources[best_doc],
+                f"Explique clairement et simplement ce qu'est '{concept}' pour un adolescent. Utilise des exemples concrets du document et structure ta réponse avec : définition simple, points importants, exemple pratique."
+            )
+            
+            if chatpdf_result:
+                formatted_explanation = f"🎓 *{concept}*\n\n"
+                formatted_explanation += chatpdf_result
+                formatted_explanation += f"\n\n✅ _Explication basée sur {best_doc}_"
+                
+                await update.message.reply_text(formatted_explanation, parse_mode='Markdown')
+                return
+    
+    # Sinon utiliser Mistral avec contexte des documents
     context_text = ""
     if documents_cache:
         for doc_name, content in documents_cache.items():
@@ -956,6 +1025,69 @@ async def answer_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         if documents_cache:
+            # PRIORITÉ 1 : Essayer ChatPDF d'abord
+            if CHATPDF_KEY and chatpdf_sources:
+                logger.info("Tentative avec ChatPDF en premier")
+                
+                # Chercher le document le plus pertinent
+                question_lower = question.lower()
+                best_doc = None
+                best_score = 0
+                
+                for doc_name in chatpdf_sources.keys():
+                    if doc_name in documents_cache:
+                        content_lower = documents_cache[doc_name].lower()
+                        score = 0
+                        for word in question_lower.split():
+                            if len(word) > 3:
+                                score += content_lower.count(word)
+                        
+                        if score > best_score:
+                            best_score = score
+                            best_doc = doc_name
+                
+                # Si on a trouvé un document pertinent, utiliser ChatPDF
+                if best_doc and best_score > 0:
+                    logger.info(f"Utilisation de ChatPDF avec {best_doc}")
+                    chatpdf_result = await ask_chatpdf(
+                        chatpdf_sources[best_doc],
+                        question
+                    )
+                    
+                    if chatpdf_result:
+                        # Formater la réponse ChatPDF
+                        formatted_response = f"📊 *Réponse basée sur {best_doc}*\n\n"
+                        formatted_response += chatpdf_result
+                        formatted_response += f"\n\n✅ _Source : ChatPDF - Analyse précise du document_"
+                        
+                        await update.message.reply_text(
+                            formatted_response,
+                            parse_mode='Markdown'
+                        )
+                        return
+                
+                # Si pas de résultat pertinent avec un seul doc, essayer avec tous
+                if len(chatpdf_sources) > 0:
+                    # Prendre le premier document disponible
+                    first_doc = list(chatpdf_sources.keys())[0]
+                    chatpdf_result = await ask_chatpdf(
+                        chatpdf_sources[first_doc],
+                        question
+                    )
+                    
+                    if chatpdf_result and len(chatpdf_result) > 50:  # Réponse substantielle
+                        formatted_response = f"📊 *Réponse trouvée dans tes documents*\n\n"
+                        formatted_response += chatpdf_result
+                        formatted_response += f"\n\n✅ _Source : ChatPDF_"
+                        
+                        await update.message.reply_text(
+                            formatted_response,
+                            parse_mode='Markdown'
+                        )
+                        return
+            
+            # PRIORITÉ 2 : Si ChatPDF n'a pas donné de résultat, utiliser Mistral
+            logger.info("Utilisation de Mistral en recours")
             # Recherche intelligente dans les documents
             context_text = ""
             question_lower = question.lower()
