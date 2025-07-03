@@ -748,59 +748,72 @@ async def quiz_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_n
     if doc_name and doc_name in chatpdf_sources:
         logger.info(f"Génération quiz ChatPDF pour {doc_name}")
         
-        # Demander à ChatPDF de créer des questions au format structuré
+        # Demander à ChatPDF de créer un quiz normal
         chatpdf_result = await ask_chatpdf(
             chatpdf_sources[doc_name],
-            """Crée EXACTEMENT 3 questions de quiz. NE PAS faire d'introduction ni de conclusion.
-            
-Utilise UNIQUEMENT ce format pour chaque question (remplace les crochets par le contenu):
-
-QUESTION: [texte de la question]
-REPONSE_A: [option A]
-REPONSE_B: [option B]
-REPONSE_C: [option C]
-REPONSE_D: [option D]
-CORRECTE: [lettre A, B, C ou D]
-EXPLICATION: [explication courte]
-
-[ligne vide entre chaque question]
-
-Exemple:
-QUESTION: Qu'est-ce qu'une zone dangereuse ?
-REPONSE_A: Un parking
-REPONSE_B: Une zone où les agents risquent d'être heurtés
-REPONSE_C: Une cafétéria
-REPONSE_D: Un bureau
-CORRECTE: B
-EXPLICATION: Zone où les agents risquent d'être heurtés par une circulation"""
+            "Crée un QCM de 3 questions sur ce document. Pour chaque question, propose 4 réponses (A, B, C, D) avec une seule bonne réponse. À la fin, indique les bonnes réponses. Sois précis et base-toi sur le contenu exact du document."
         )
         
         if chatpdf_result:
-            # Parser les questions
+            # Parser le format réel de ChatPDF
             questions = []
-            current_q = {}
+            lines = chatpdf_result.split('\n')
+            i = 0
             
-            for line in chatpdf_result.split('\n'):
-                line = line.strip()
-                if line.startswith('QUESTION:'):
-                    if current_q:
-                        questions.append(current_q)
-                    current_q = {'question': line.replace('QUESTION:', '').strip()}
-                elif line.startswith('REPONSE_A:'):
-                    current_q['A'] = line.replace('REPONSE_A:', '').strip()
-                elif line.startswith('REPONSE_B:'):
-                    current_q['B'] = line.replace('REPONSE_B:', '').strip()
-                elif line.startswith('REPONSE_C:'):
-                    current_q['C'] = line.replace('REPONSE_C:', '').strip()
-                elif line.startswith('REPONSE_D:'):
-                    current_q['D'] = line.replace('REPONSE_D:', '').strip()
-                elif line.startswith('CORRECTE:'):
-                    current_q['correct'] = line.replace('CORRECTE:', '').strip()
-                elif line.startswith('EXPLICATION:'):
-                    current_q['explanation'] = line.replace('EXPLICATION:', '').strip()
+            while i < len(lines):
+                line = lines[i].strip()
+                
+                # Chercher "Question X:" ou similaire
+                if re.match(r'^Question\s*\d+:', line):
+                    question_text = line.split(':', 1)[1].strip() if ':' in line else line
+                    
+                    # Chercher les options A, B, C, D
+                    options = {}
+                    j = i + 1
+                    while j < len(lines) and j < i + 5:
+                        opt_line = lines[j].strip()
+                        # Chercher A), B), C), D)
+                        if re.match(r'^[A-D]\)', opt_line):
+                            letter = opt_line[0]
+                            text = opt_line[3:].strip()
+                            options[letter] = text
+                        j += 1
+                    
+                    if len(options) == 4:
+                        questions.append({
+                            'question': question_text,
+                            'A': options.get('A', ''),
+                            'B': options.get('B', ''),
+                            'C': options.get('C', ''),
+                            'D': options.get('D', ''),
+                            'correct': 'A',  # On devinera depuis les réponses plus bas
+                            'explanation': ''
+                        })
+                
+                i += 1
             
-            if current_q:
-                questions.append(current_q)
+            # Chercher les réponses correctes dans la section "Réponses"
+            if "Réponses" in chatpdf_result or "correctes" in chatpdf_result.lower():
+                resp_section = chatpdf_result.split("Réponses")[1] if "Réponses" in chatpdf_result else chatpdf_result
+                
+                # Pour chaque question, chercher sa réponse
+                for idx, q in enumerate(questions):
+                    # Chercher "1. B)" ou "Question 1: B" etc.
+                    pattern = rf'{idx+1}\.\s*([A-D])'
+                    match = re.search(pattern, resp_section)
+                    if match:
+                        q['correct'] = match.group(1)
+                        
+                        # Chercher l'explication après la lettre
+                        exp_pattern = rf'{idx+1}\.\s*{match.group(1)}[^\n]*\n([^\n]+)'
+                        exp_match = re.search(exp_pattern, resp_section)
+                        if exp_match:
+                            q['explanation'] = exp_match.group(1).strip()
+            
+            # Log pour debug
+            logger.info(f"Questions parsées : {len(questions)}")
+            if questions:
+                logger.info(f"Première question : {questions[0]}")
             
             # Envoyer les quiz Telegram
             if questions:
