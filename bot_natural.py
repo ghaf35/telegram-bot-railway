@@ -748,21 +748,31 @@ async def quiz_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_n
     if doc_name and doc_name in chatpdf_sources:
         logger.info(f"Génération quiz ChatPDF pour {doc_name}")
         
-        # Demander à ChatPDF de créer des questions au format JSON
+        # Demander à ChatPDF de créer des questions au format structuré
         chatpdf_result = await ask_chatpdf(
             chatpdf_sources[doc_name],
-            """Crée 3 questions de quiz sur ce document. 
-            Pour CHAQUE question, fournis EXACTEMENT ce format:
+            """Crée EXACTEMENT 3 questions de quiz. NE PAS faire d'introduction ni de conclusion.
             
-            QUESTION: [La question]
-            REPONSE_A: [Option A]
-            REPONSE_B: [Option B]
-            REPONSE_C: [Option C]
-            REPONSE_D: [Option D]
-            CORRECTE: [A, B, C ou D]
-            EXPLICATION: [Courte explication]
-            
-            Sépare chaque question par une ligne vide. Base-toi sur le contenu exact du document."""
+Utilise UNIQUEMENT ce format pour chaque question (remplace les crochets par le contenu):
+
+QUESTION: [texte de la question]
+REPONSE_A: [option A]
+REPONSE_B: [option B]
+REPONSE_C: [option C]
+REPONSE_D: [option D]
+CORRECTE: [lettre A, B, C ou D]
+EXPLICATION: [explication courte]
+
+[ligne vide entre chaque question]
+
+Exemple:
+QUESTION: Qu'est-ce qu'une zone dangereuse ?
+REPONSE_A: Un parking
+REPONSE_B: Une zone où les agents risquent d'être heurtés
+REPONSE_C: Une cafétéria
+REPONSE_D: Un bureau
+CORRECTE: B
+EXPLICATION: Zone où les agents risquent d'être heurtés par une circulation"""
         )
         
         if chatpdf_result:
@@ -793,41 +803,53 @@ async def quiz_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_n
                 questions.append(current_q)
             
             # Envoyer les quiz Telegram
-            for i, q in enumerate(questions[:3]):  # Limiter à 3 questions
-                if all(k in q for k in ['question', 'A', 'B', 'C', 'D', 'correct']):
-                    try:
-                        # Préparer les options
-                        options = [q['A'], q['B'], q['C'], q['D']]
-                        correct_index = ord(q['correct'].upper()) - ord('A')
-                        
-                        # Envoyer le quiz
-                        await update.message.reply_poll(
-                            question=f"❓ Question {i+1}: {q['question']}",
-                            options=options,
-                            type='quiz',
-                            correct_option_id=correct_index,
-                            explanation=q.get('explanation', f"La bonne réponse est {q['correct']}"),
-                            is_anonymous=False,
-                            allows_multiple_answers=False
-                        )
-                        
-                        # Petite pause entre les questions
-                        await asyncio.sleep(1)
-                        
-                    except Exception as e:
-                        logger.error(f"Erreur envoi quiz: {e}")
+            if questions:
+                quiz_sent = False
+                for i, q in enumerate(questions[:3]):  # Limiter à 3 questions
+                    if all(k in q for k in ['question', 'A', 'B', 'C', 'D', 'correct']):
+                        try:
+                            # Préparer les options
+                            options = [q['A'], q['B'], q['C'], q['D']]
+                            correct_index = ord(q['correct'].upper()) - ord('A')
+                            
+                            # Vérifier que l'index est valide
+                            if 0 <= correct_index <= 3:
+                                # Envoyer le quiz
+                                await update.message.reply_poll(
+                                    question=f"❓ Question {i+1}: {q['question']}",
+                                    options=options,
+                                    type='quiz',
+                                    correct_option_id=correct_index,
+                                    explanation=q.get('explanation', f"La bonne réponse est {q['correct']}"),
+                                    is_anonymous=False,
+                                    allows_multiple_answers=False
+                                )
+                                quiz_sent = True
+                                
+                                # Petite pause entre les questions
+                                await asyncio.sleep(1)
+                            
+                        except Exception as e:
+                            logger.error(f"Erreur envoi quiz: {e}")
+                
+                if quiz_sent:
+                    # Message de fin
+                    await update.message.reply_text(
+                        f"✅ *Quiz terminé !*\n\n"
+                        f"C'était un quiz sur *{doc_name}*\n\n"
+                        f"_Dis \"nouveau quiz\" pour recommencer !_",
+                        parse_mode='Markdown'
+                    )
+                    return
             
-            # Message de fin
-            await update.message.reply_text(
-                f"✅ *Quiz terminé !*\n\n"
-                f"C'était un quiz sur *{doc_name}*\n\n"
-                f"_Dis \"nouveau quiz\" pour recommencer !_",
-                parse_mode='Markdown'
-            )
+            # Si pas de questions parsées, envoyer le quiz texte classique
+            logger.info("Parsing échoué, envoi du quiz en format texte")
+            formatted_quiz = f"🎯 *Quiz sur {doc_name}*\n\n"
+            formatted_quiz += chatpdf_result
+            formatted_quiz += "\n\n_Dis \"nouveau quiz\" pour un autre !_"
+            
+            await update.message.reply_text(formatted_quiz, parse_mode='Markdown')
             return
-        
-        # Si échec du parsing, envoyer un quiz simple
-        await quiz_simple_fallback(update, context, doc_name)
     else:
         await update.message.reply_text(
             "❌ *Aucun document disponible sur ChatPDF pour créer un quiz*\n\n"
@@ -835,22 +857,6 @@ async def quiz_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_n
             parse_mode='Markdown'
         )
 
-async def quiz_simple_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_name: str):
-    """Quiz de secours si le parsing échoue"""
-    # Créer un quiz simple de démonstration
-    await update.message.reply_poll(
-        question="❓ Qu'est-ce qu'une zone dangereuse ?",
-        options=[
-            "Un endroit avec des animaux",
-            "Une zone où les agents risquent d'être heurtés par une circulation",
-            "Une zone de repos",
-            "Un parking"
-        ],
-        type='quiz',
-        correct_option_id=1,
-        explanation="Une zone dangereuse est une zone où les agents risquent d'être heurtés par une circulation ferroviaire.",
-        is_anonymous=False
-    )
 
 async def flashcards_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_name: str):
     """Flashcards en langage naturel"""
