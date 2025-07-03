@@ -12,7 +12,6 @@ import json
 import re
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from mistralai import Mistral
 import PyPDF2
 import io
 
@@ -25,7 +24,6 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-MISTRAL_KEY = os.environ.get("MISTRAL_API_KEY")
 CHATPDF_KEY = os.environ.get("CHATPDF_API_KEY")
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "ghaf35/mes-cours")
 
@@ -34,21 +32,12 @@ if not TELEGRAM_TOKEN:
     logger.error("❌ TELEGRAM_BOT_TOKEN manquant !")
     sys.exit(1)
 
-if not MISTRAL_KEY:
-    logger.error("❌ MISTRAL_API_KEY manquant !")
+if not CHATPDF_KEY:
+    logger.error("❌ CHATPDF_API_KEY manquant ! Le bot a besoin de ChatPDF pour fonctionner.")
     sys.exit(1)
 
 logger.info(f"✅ Configuration OK - Repo: {GITHUB_REPO}")
-if CHATPDF_KEY:
-    logger.info("✅ ChatPDF API Key détectée")
-
-# Initialiser Mistral
-try:
-    mistral_client = Mistral(api_key=MISTRAL_KEY)
-    logger.info("✅ Mistral initialisé")
-except Exception as e:
-    logger.error(f"❌ Erreur Mistral: {e}")
-    sys.exit(1)
+logger.info("✅ ChatPDF API Key détectée")
 
 # Cache des documents
 documents_cache = {}
@@ -239,6 +228,29 @@ async def ask_chatpdf(source_id: str, question: str) -> str:
         if response.status_code == 200:
             result = response.json()
             content = result['content']
+            
+            # Nettoyer la réponse de ChatPDF
+            # Chercher et supprimer la première ligne si elle contient "Réponse basée sur"
+            lines = content.split('\n')
+            if lines and '📊' in lines[0] and 'Réponse basée sur' in lines[0]:
+                lines = lines[1:]  # Supprimer la première ligne
+                # Supprimer les lignes vides au début
+                while lines and lines[0].strip() == '':
+                    lines = lines[1:]
+            
+            # Reconstituer le contenu
+            content = '\n'.join(lines)
+            
+            # Supprimer la dernière ligne si elle contient "Source : ChatPDF"
+            lines = content.split('\n')
+            if lines and '✅' in lines[-1] and 'ChatPDF' in lines[-1]:
+                lines = lines[:-1]  # Supprimer la dernière ligne
+                # Supprimer les lignes vides à la fin
+                while lines and lines[-1].strip() == '':
+                    lines = lines[:-1]
+            
+            # Reconstituer le contenu final
+            content = '\n'.join(lines)
             
             # Formatter avec les références
             if 'references' in result and result['references']:
@@ -519,8 +531,17 @@ async def summary_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, do
         parse_mode='Markdown'
     )
     
-    # PRIORITÉ : Utiliser ChatPDF si disponible
-    if CHATPDF_KEY and doc_name in chatpdf_sources:
+    # Vérifier si le document existe
+    if doc_name not in documents_cache:
+        await update.message.reply_text(
+            f"😅 Je ne trouve pas le document \"{doc_name}\".\n\n"
+            "💡 _Tape \"liste\" pour voir les documents disponibles !_",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # Utiliser ChatPDF
+    if doc_name in chatpdf_sources:
         logger.info(f"Utilisation de ChatPDF pour résumer {doc_name}")
         chatpdf_result = await ask_chatpdf(
             chatpdf_sources[doc_name],
@@ -530,54 +551,16 @@ async def summary_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, do
         if chatpdf_result:
             formatted_summary = f"📄 *Résumé de {doc_name}*\n\n"
             formatted_summary += chatpdf_result
-            formatted_summary += f"\n\n✅ _Résumé généré par ChatPDF_"
             
             await update.message.reply_text(formatted_summary, parse_mode='Markdown')
             return
     
-    # Sinon utiliser Mistral
-    try:
-        content = documents_cache[doc_name]
-        words = len(content.split())
-        content_preview = content[:3000] if len(content) > 3000 else content
-        
-        prompt = f"""Fais un résumé CONCIS et CLAIR de ce document.
-
-*📄 {doc_name}*
-
-*📌 En bref :*
-Résume en 2-3 phrases maximum l'essentiel du document.
-
-*🎯 Points principaux :*
-• Point clé 1
-• Point clé 2  
-• Point clé 3
-
-*💡 À retenir :*
-Le message le plus important en une phrase.
-
-Document :
-{content_preview}"""
-        
-        response = mistral_client.chat.complete(
-            model="mistral-small-latest",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=500,
-            temperature=0.3
-        )
-        
-        summary = response.choices[0].message.content
-        summary += f"\n\n📊 _Document de {words:,} mots résumé !_"
-        
-        await update.message.reply_text(summary, parse_mode='Markdown')
-        
-    except Exception as e:
-        logger.error(f"Erreur résumé: {e}")
-        await update.message.reply_text(
-            "😅 Oups, je n'ai pas réussi à résumer ce document.\n"
-            "_Vérifie le nom du document !_",
-            parse_mode='Markdown'
-        )
+    # Si le document n'est pas sur ChatPDF
+    await update.message.reply_text(
+        f"❌ *Le document \"{doc_name}\" n'est pas disponible sur ChatPDF*\n\n"
+        "💡 Essaie de synchroniser à nouveau tes documents.",
+        parse_mode='Markdown'
+    )
 
 async def analyze_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_name: str):
     """Analyse en langage naturel"""
@@ -602,9 +585,18 @@ async def analyze_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, do
         parse_mode='Markdown'
     )
     
-    # TOUJOURS utiliser ChatPDF en priorité si disponible
-    if CHATPDF_KEY and doc_name in chatpdf_sources:
-        logger.info(f"Analyse ChatPDF prioritaire pour {doc_name}")
+    # Vérifier si le document existe
+    if doc_name not in documents_cache:
+        await update.message.reply_text(
+            f"😅 Je ne trouve pas le document \"{doc_name}\".\n\n"
+            "💡 _Tape \"liste\" pour voir les documents disponibles !_",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # Utiliser ChatPDF
+    if doc_name in chatpdf_sources:
+        logger.info(f"Analyse ChatPDF pour {doc_name}")
         chatpdf_result = await ask_chatpdf(
             chatpdf_sources[doc_name],
             "Fais une analyse détaillée et structurée de ce document. Inclus : 1) Résumé exécutif 2) Objectifs principaux 3) Points clés détaillés 4) Structure du document 5) Éléments critiques à retenir. Sois très précis et cite des passages importants."
@@ -613,7 +605,6 @@ async def analyze_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, do
         if chatpdf_result:
             formatted_analysis = f"📊 *Analyse détaillée de {doc_name}*\n\n"
             formatted_analysis += chatpdf_result
-            formatted_analysis += f"\n\n✅ _Analyse complète par ChatPDF_"
             
             await update.message.reply_text(
                 formatted_analysis,
@@ -621,43 +612,12 @@ async def analyze_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, do
             )
             return
     
-    # Mistral seulement si ChatPDF n'est pas disponible
-    logger.info("Utilisation de Mistral en recours pour l'analyse")
-    try:
-        content = documents_cache[doc_name]
-        content_preview = content[:5000] if len(content) > 5000 else content
-        
-        # Prompt similaire mais adapté au langage naturel
-        prompt = f"""Analyse ce document de manière approfondie et structurée.
-
-Document : {doc_name}
-
-Fais une analyse avec :
-- Résumé exécutif
-- Objectifs principaux
-- Points clés
-- Structure du document
-- Éléments importants à retenir
-
-Contenu :
-{content_preview}"""
-        
-        response = mistral_client.chat.complete(
-            model="mistral-small-latest",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=2000,
-            temperature=0.3
-        )
-        
-        analysis = response.choices[0].message.content
-        await update.message.reply_text(analysis, parse_mode='Markdown')
-        
-    except Exception as e:
-        logger.error(f"Erreur analyse: {e}")
-        await update.message.reply_text(
-            "😅 Oups, je n'ai pas réussi à analyser ce document.",
-            parse_mode='Markdown'
-        )
+    # Si le document n'est pas sur ChatPDF
+    await update.message.reply_text(
+        f"❌ *Le document \"{doc_name}\" n'est pas disponible sur ChatPDF*\n\n"
+        "💡 Essaie de synchroniser à nouveau tes documents.",
+        parse_mode='Markdown'
+    )
 
 async def quiz_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_name: str):
     """Quiz en langage naturel"""
@@ -674,8 +634,13 @@ async def quiz_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_n
         parse_mode='Markdown'
     )
     
-    # PRIORITÉ : ChatPDF pour des questions plus précises
-    if CHATPDF_KEY and doc_name and doc_name in chatpdf_sources:
+    # Si pas de document spécifié, prendre le premier disponible
+    if not doc_name and chatpdf_sources:
+        doc_name = list(chatpdf_sources.keys())[0]
+        logger.info(f"Pas de document spécifié, utilisation de {doc_name}")
+    
+    # Utiliser ChatPDF
+    if doc_name and doc_name in chatpdf_sources:
         logger.info(f"Génération quiz ChatPDF pour {doc_name}")
         chatpdf_result = await ask_chatpdf(
             chatpdf_sources[doc_name],
@@ -690,58 +655,12 @@ async def quiz_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_n
             await update.message.reply_text(formatted_quiz, parse_mode='Markdown')
             return
     
-    # Sinon utiliser Mistral
-    if doc_name and doc_name in documents_cache:
-        content = documents_cache[doc_name][:3000]
-        doc_display = doc_name
-    else:
-        # Quiz général sur tous les documents
-        all_content = ""
-        for name, content in list(documents_cache.items())[:2]:
-            all_content += f"\n{name}:\n{content[:1000]}\n"
-        content = all_content
-        doc_display = "tous tes documents"
-    
-    try:
-        prompt = f"""Crée un QCM de 5 questions sur ce contenu.
-        
-Format simple et clair :
-
-*🎯 Quiz sur {doc_display}*
-
-**Question 1 :**
-[Question]
-A) [Réponse]
-B) [Réponse]
-C) [Réponse]
-D) [Réponse]
-
-(Répète pour 5 questions)
-
-*💡 Réponses :*
-1. [Lettre] - [Explication]
-(etc...)
-
-Contenu : {content}"""
-        
-        response = mistral_client.chat.complete(
-            model="mistral-small-latest",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=1500,
-            temperature=0.7
-        )
-        
-        quiz = response.choices[0].message.content
-        quiz += "\n\n_Dis \"nouveau quiz\" pour un autre !_"
-        
-        await update.message.reply_text(quiz, parse_mode='Markdown')
-        
-    except Exception as e:
-        logger.error(f"Erreur quiz: {e}")
-        await update.message.reply_text(
-            "😅 Oups, je n'ai pas réussi à créer le quiz.",
-            parse_mode='Markdown'
-        )
+    # Si pas de document sur ChatPDF
+    await update.message.reply_text(
+        "❌ *Aucun document disponible sur ChatPDF pour créer un quiz*\n\n"
+        "💡 Synchronise tes documents d'abord !",
+        parse_mode='Markdown'
+    )
 
 async def flashcards_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_name: str):
     """Flashcards en langage naturel"""
@@ -766,41 +685,37 @@ async def flashcards_natural(update: Update, context: ContextTypes.DEFAULT_TYPE,
         parse_mode='Markdown'
     )
     
-    try:
-        content = documents_cache[doc_name][:3000]
-        
-        prompt = f"""Crée 5 cartes de révision (flashcards) sur ce document.
-
-Format simple :
-
-*🗂️ Cartes de révision : {doc_name}*
-
-**Carte 1**
-❓ Question : [Question ou concept]
-✅ Réponse : [Réponse claire]
-
-(Répète pour 5 cartes)
-
-Document : {content}"""
-        
-        response = mistral_client.chat.complete(
-            model="mistral-small-latest",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=1000,
-            temperature=0.5
-        )
-        
-        flashcards = response.choices[0].message.content
-        flashcards += "\n\n📝 _Note ces cartes pour réviser !_"
-        
-        await update.message.reply_text(flashcards, parse_mode='Markdown')
-        
-    except Exception as e:
-        logger.error(f"Erreur flashcards: {e}")
+    # Vérifier si le document existe
+    if doc_name not in documents_cache:
         await update.message.reply_text(
-            "😅 Oups, je n'ai pas réussi à créer les cartes.",
+            f"😅 Je ne trouve pas le document \"{doc_name}\".\n\n"
+            "💡 _Tape \"liste\" pour voir les documents disponibles !_",
             parse_mode='Markdown'
         )
+        return
+    
+    # Utiliser ChatPDF
+    if doc_name in chatpdf_sources:
+        logger.info(f"Génération flashcards ChatPDF pour {doc_name}")
+        chatpdf_result = await ask_chatpdf(
+            chatpdf_sources[doc_name],
+            "Crée 5 cartes de révision (flashcards) sur ce document. Pour chaque carte, propose une question pertinente et sa réponse claire. Utilise ce format : **Carte 1** ❓ Question : [Question] ✅ Réponse : [Réponse]. Base-toi sur les points importants du document."
+        )
+        
+        if chatpdf_result:
+            formatted_cards = f"🗂️ *Cartes de révision : {doc_name}*\n\n"
+            formatted_cards += chatpdf_result
+            formatted_cards += "\n\n📝 _Note ces cartes pour réviser !_"
+            
+            await update.message.reply_text(formatted_cards, parse_mode='Markdown')
+            return
+    
+    # Si le document n'est pas sur ChatPDF
+    await update.message.reply_text(
+        f"❌ *Le document \"{doc_name}\" n'est pas disponible sur ChatPDF*\n\n"
+        "💡 Essaie de synchroniser à nouveau tes documents.",
+        parse_mode='Markdown'
+    )
 
 async def explain_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, concept: str):
     """Explication en langage naturel"""
@@ -821,89 +736,53 @@ async def explain_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, co
         parse_mode='Markdown'
     )
     
-    # PRIORITÉ : ChatPDF pour des explications basées sur les documents
+    # TOUJOURS utiliser ChatPDF si disponible, peu importe le concept
     if CHATPDF_KEY and chatpdf_sources:
-        # Chercher le document le plus pertinent
-        best_doc = None
-        best_score = 0
+        # Prendre le premier document disponible (ou chercher le plus pertinent)
+        doc_to_use = None
         
+        # D'abord essayer de trouver un document pertinent
         for doc_name in chatpdf_sources.keys():
             if doc_name in documents_cache:
                 content_lower = documents_cache[doc_name].lower()
                 if concept.lower() in content_lower:
-                    score = content_lower.count(concept.lower())
-                    if score > best_score:
-                        best_score = score
-                        best_doc = doc_name
+                    doc_to_use = doc_name
+                    break
         
-        if best_doc:
-            logger.info(f"Explication ChatPDF avec {best_doc}")
+        # Si pas de document spécifique, prendre le premier (probablement TESM.pdf)
+        if not doc_to_use and len(chatpdf_sources) > 0:
+            doc_to_use = list(chatpdf_sources.keys())[0]
+        
+        if doc_to_use:
+            logger.info(f"Explication ChatPDF avec {doc_to_use}")
+            # Poser la question directement à ChatPDF
             chatpdf_result = await ask_chatpdf(
-                chatpdf_sources[best_doc],
-                f"Explique clairement et simplement ce qu'est '{concept}' pour un adolescent. Utilise des exemples concrets du document et structure ta réponse avec : définition simple, points importants, exemple pratique."
+                chatpdf_sources[doc_to_use],
+                f"Qu'est-ce que '{concept}' ? Donne une explication claire et précise basée sur le document."
             )
             
             if chatpdf_result:
                 formatted_explanation = f"🎓 *{concept}*\n\n"
                 formatted_explanation += chatpdf_result
-                formatted_explanation += f"\n\n✅ _Explication basée sur {best_doc}_"
                 
                 await update.message.reply_text(formatted_explanation, parse_mode='Markdown')
                 return
+            
+            # Si ChatPDF ne trouve pas, dire clairement que ce n'est pas dans le document
+            await update.message.reply_text(
+                f"❌ *'{concept}' n'est pas trouvé dans {doc_to_use}*\n\n"
+                "💡 Essaie avec d'autres termes ou vérifie l'orthographe.",
+                parse_mode='Markdown'
+            )
+            return
     
-    # Sinon utiliser Mistral avec contexte des documents
-    context_text = ""
-    if documents_cache:
-        for doc_name, content in documents_cache.items():
-            if concept.lower() in content.lower():
-                # Extraire le contexte
-                index = content.lower().find(concept.lower())
-                start = max(0, index - 200)
-                end = min(len(content), index + 500)
-                context_text += f"D'après {doc_name} : {content[start:end]}\n\n"
-                if len(context_text) > 1000:
-                    break
-    
-    try:
-        prompt = f"""Explique "{concept}" de manière simple et claire pour un adolescent.
-
-{("Contexte des documents : " + context_text) if context_text else ""}
-
-Format simple :
-
-*🎓 {concept}*
-
-*💡 En simple :*
-[Explication en 2-3 phrases faciles]
-
-*📌 Points importants :*
-• [Point 1]
-• [Point 2]
-• [Point 3]
-
-*🎯 Exemple concret :*
-[Un exemple de la vie réelle]
-
-*✨ À retenir :*
-[L'essentiel en 1 phrase]"""
-        
-        response = mistral_client.chat.complete(
-            model="mistral-small-latest",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=800,
-            temperature=0.3
-        )
-        
-        explanation = response.choices[0].message.content
-        
-        await update.message.reply_text(explanation, parse_mode='Markdown')
-        
-    except Exception as e:
-        logger.error(f"Erreur explain: {e}")
-        await update.message.reply_text(
-            "😅 Oups, je n'ai pas réussi à expliquer ça.",
-            parse_mode='Markdown'
-        )
+    # Si pas de ChatPDF, message d'erreur clair
+    await update.message.reply_text(
+        "❌ *ChatPDF n'est pas configuré*\n\n"
+        "Pour avoir des réponses précises, ajoute CHATPDF_API_KEY sur Railway.",
+        parse_mode='Markdown'
+    )
+    return
 
 async def mindmap_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_name: str):
     """Carte mentale en langage naturel"""
@@ -928,47 +807,37 @@ async def mindmap_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, do
         parse_mode='Markdown'
     )
     
-    try:
-        content = documents_cache[doc_name][:2500]
-        
-        prompt = f"""Crée une carte mentale textuelle de ce document.
-
-Format visuel avec indentation :
-
-*🧠 Carte mentale : {doc_name}*
-
-🎯 **[Thème Central]**
-├── 📌 **Branche 1**
-│   ├── • Point 1.1
-│   ├── • Point 1.2
-│   └── • Point 1.3
-├── 📌 **Branche 2**
-│   ├── • Point 2.1
-│   └── • Point 2.2
-└── 📌 **Branche 3**
-    ├── • Point 3.1
-    └── • Point 3.2
-
-Document : {content}"""
-        
-        response = mistral_client.chat.complete(
-            model="mistral-small-latest",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=1200,
-            temperature=0.5
-        )
-        
-        mindmap = response.choices[0].message.content
-        mindmap += "\n\n🎨 _Cette carte résume les idées principales !_"
-        
-        await update.message.reply_text(mindmap, parse_mode='Markdown')
-        
-    except Exception as e:
-        logger.error(f"Erreur mindmap: {e}")
+    # Vérifier si le document existe
+    if doc_name not in documents_cache:
         await update.message.reply_text(
-            "😅 Oups, je n'ai pas réussi à créer la carte mentale.",
+            f"😅 Je ne trouve pas le document \"{doc_name}\".\n\n"
+            "💡 _Tape \"liste\" pour voir les documents disponibles !_",
             parse_mode='Markdown'
         )
+        return
+    
+    # Utiliser ChatPDF
+    if doc_name in chatpdf_sources:
+        logger.info(f"Génération carte mentale ChatPDF pour {doc_name}")
+        chatpdf_result = await ask_chatpdf(
+            chatpdf_sources[doc_name],
+            "Crée une carte mentale textuelle de ce document. Utilise ce format visuel : 🎯 **[Thème Central]** ├── 📌 **Branche 1** │   ├── • Point 1.1 │   └── • Point 1.2 ├── 📌 **Branche 2** │   └── • Point 2.1 └── 📌 **Branche 3**     └── • Point 3.1. Organise les idées principales de manière hiérarchique."
+        )
+        
+        if chatpdf_result:
+            formatted_mindmap = f"🧠 *Carte mentale : {doc_name}*\n\n"
+            formatted_mindmap += chatpdf_result
+            formatted_mindmap += "\n\n🎨 _Cette carte résume les idées principales !_"
+            
+            await update.message.reply_text(formatted_mindmap, parse_mode='Markdown')
+            return
+    
+    # Si le document n'est pas sur ChatPDF
+    await update.message.reply_text(
+        f"❌ *Le document \"{doc_name}\" n'est pas disponible sur ChatPDF*\n\n"
+        "💡 Essaie de synchroniser à nouveau tes documents.",
+        parse_mode='Markdown'
+    )
 
 async def help_natural(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Aide en langage naturel"""
@@ -1050,166 +919,78 @@ async def answer_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     try:
-        if documents_cache:
-            # PRIORITÉ 1 : Essayer ChatPDF d'abord
-            if CHATPDF_KEY and chatpdf_sources:
-                logger.info("Tentative avec ChatPDF en premier")
-                
-                # Chercher le document le plus pertinent
-                question_lower = question.lower()
-                best_doc = None
-                best_score = 0
-                
-                for doc_name in chatpdf_sources.keys():
-                    if doc_name in documents_cache:
-                        content_lower = documents_cache[doc_name].lower()
-                        score = 0
-                        for word in question_lower.split():
-                            if len(word) > 3:
-                                score += content_lower.count(word)
-                        
-                        if score > best_score:
-                            best_score = score
-                            best_doc = doc_name
-                
-                # Si on a trouvé un document pertinent, utiliser ChatPDF
-                if best_doc and best_score > 0:
-                    logger.info(f"Utilisation de ChatPDF avec {best_doc}")
-                    chatpdf_result = await ask_chatpdf(
-                        chatpdf_sources[best_doc],
-                        question
-                    )
-                    
-                    if chatpdf_result:
-                        # Formater la réponse ChatPDF
-                        formatted_response = f"📊 *Réponse basée sur {best_doc}*\n\n"
-                        formatted_response += chatpdf_result
-                        formatted_response += f"\n\n✅ _Source : ChatPDF - Analyse précise du document_"
-                        
-                        await update.message.reply_text(
-                            formatted_response,
-                            parse_mode='Markdown'
-                        )
-                        return
-                
-                # Si pas de résultat pertinent avec un seul doc, essayer avec tous
-                if len(chatpdf_sources) > 0:
-                    # Prendre le premier document disponible
-                    first_doc = list(chatpdf_sources.keys())[0]
-                    chatpdf_result = await ask_chatpdf(
-                        chatpdf_sources[first_doc],
-                        question
-                    )
-                    
-                    if chatpdf_result and len(chatpdf_result) > 50:  # Réponse substantielle
-                        formatted_response = f"📊 *Réponse trouvée dans tes documents*\n\n"
-                        formatted_response += chatpdf_result
-                        formatted_response += f"\n\n✅ _Source : ChatPDF_"
-                        
-                        await update.message.reply_text(
-                            formatted_response,
-                            parse_mode='Markdown'
-                        )
-                        return
+        if documents_cache and chatpdf_sources:
+            logger.info("Utilisation de ChatPDF pour répondre")
             
-            # PRIORITÉ 2 : Si ChatPDF n'a pas donné de résultat, utiliser Mistral
-            logger.info("Utilisation de Mistral en recours")
-            # Recherche intelligente dans les documents
-            context_text = ""
+            # Chercher le document le plus pertinent
             question_lower = question.lower()
+            best_doc = None
+            best_score = 0
             
-            # Score de pertinence pour chaque document
-            relevant_docs = []
-            for doc_name, content in documents_cache.items():
-                content_lower = content.lower()
-                relevance_score = 0
+            for doc_name in chatpdf_sources.keys():
+                if doc_name in documents_cache:
+                    content_lower = documents_cache[doc_name].lower()
+                    score = 0
+                    for word in question_lower.split():
+                        if len(word) > 3:
+                            score += content_lower.count(word)
+                    
+                    if score > best_score:
+                        best_score = score
+                        best_doc = doc_name
+            
+            # Si on a trouvé un document pertinent, utiliser ChatPDF
+            if best_doc and best_score > 0:
+                logger.info(f"Utilisation de ChatPDF avec {best_doc}")
+                chatpdf_result = await ask_chatpdf(
+                    chatpdf_sources[best_doc],
+                    question
+                )
                 
-                # Calculer la pertinence
-                for word in question_lower.split():
-                    if len(word) > 3:
-                        relevance_score += content_lower.count(word)
+                if chatpdf_result:
+                    # Formater la réponse ChatPDF
+                    formatted_response = chatpdf_result
+                    
+                    await update.message.reply_text(
+                        formatted_response,
+                        parse_mode='Markdown'
+                    )
+                    return
+            
+            # Si pas de résultat pertinent avec un seul doc, essayer avec le premier
+            if len(chatpdf_sources) > 0:
+                # Prendre le premier document disponible
+                first_doc = list(chatpdf_sources.keys())[0]
+                logger.info(f"Pas de document spécifique trouvé, utilisation de {first_doc}")
+                chatpdf_result = await ask_chatpdf(
+                    chatpdf_sources[first_doc],
+                    question
+                )
                 
-                if relevance_score > 0:
-                    relevant_docs.append((doc_name, content, relevance_score))
+                if chatpdf_result:
+                    # Envoyer directement la réponse de ChatPDF
+                    await update.message.reply_text(
+                        chatpdf_result,
+                        parse_mode='Markdown'
+                    )
+                    return
             
-            # Trier par pertinence
-            relevant_docs.sort(key=lambda x: x[2], reverse=True)
-            
-            # Prendre les plus pertinents
-            for doc_name, content, score in relevant_docs[:3]:
-                # Extraire les passages pertinents
-                passages = []
-                for word in question_lower.split():
-                    if len(word) > 3 and word in content_lower:
-                        index = content_lower.find(word)
-                        start = max(0, index - 300)
-                        end = min(len(content), index + 700)
-                        passage = content[start:end]
-                        if passage not in passages:
-                            passages.append(passage)
-                
-                if passages:
-                    context_text += f"\n=== {doc_name} ===\n"
-                    context_text += "\n---\n".join(passages[:2])
-                    context_text += "\n"
-            
-            # Si ChatPDF est disponible et qu'on cherche des données précises
-            if CHATPDF_KEY and any(word in question_lower for word in ['tableau', 'page', 'chiffre', 'données']):
-                for doc_name in relevant_docs[:1]:
-                    if doc_name[0] in chatpdf_sources:
-                        chatpdf_result = await ask_chatpdf(
-                            chatpdf_sources[doc_name[0]], 
-                            question
-                        )
-                        if chatpdf_result:
-                            context_text += f"\n=== Données précises de {doc_name[0]} ===\n"
-                            context_text += chatpdf_result + "\n"
-            
-            prompt = f"""Tu es un assistant sympathique qui aide un étudiant.
-            
-QUESTION : {question}
-
-DOCUMENTS DISPONIBLES :
-{context_text if context_text else "Aucun passage spécifique trouvé, utilise le contexte général des documents."}
-
-INSTRUCTIONS :
-1. Réponds de manière claire et directe
-2. Utilise un ton amical et encourageant
-3. Si tu cites un document, mentionne-le
-4. Structure bien ta réponse avec des emojis
-5. Si l'info n'est pas dans les documents, dis-le gentiment
-
-Format ta réponse avec :
-- Des titres en *gras*
-- Des emojis pertinents
-- Des bullet points si nécessaire
-- Un ton sympathique et pédagogique"""
-            
+            # Si toujours pas de réponse
+            await update.message.reply_text(
+                "❌ *Je n'ai pas trouvé de réponse dans tes documents*\n\n"
+                "💡 Essaie de reformuler ta question ou vérifie que tes documents sont bien synchronisés.",
+                parse_mode='Markdown'
+            )
         else:
-            prompt = f"""L'utilisateur demande : {question}
-
-Réponds gentiment qu'il faut d'abord synchroniser les documents :
-
-😊 *Je n'ai pas encore accès à tes documents !*
-
-Pour que je puisse t'aider, dis-moi :
-• "synchronise" ou
-• "charge mes documents"
-
-Ensuite je pourrai répondre à toutes tes questions ! 💪"""
-        
-        # Demander à Mistral
-        response = mistral_client.chat.complete(
-            model="mistral-small-latest",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=1000,
-            temperature=0.3
-        )
-        
-        await update.message.reply_text(
-            response.choices[0].message.content,
-            parse_mode='Markdown'
-        )
+            # Pas de documents synchronisés
+            await update.message.reply_text(
+                "😊 *Je n'ai pas encore accès à tes documents !*\n\n"
+                "Pour que je puisse t'aider, dis-moi :\n"
+                "• \"synchronise\" ou\n"
+                "• \"charge mes documents\"\n\n"
+                "Ensuite je pourrai répondre à toutes tes questions ! 💪",
+                parse_mode='Markdown'
+            )
         
     except Exception as e:
         logger.error(f"Erreur réponse: {e}")
@@ -1233,8 +1014,7 @@ def main():
     """Démarrer le bot avec langage naturel"""
     logger.info("🚀 Démarrage du bot avec langage naturel...")
     logger.info(f"📚 Repository : {GITHUB_REPO}")
-    if CHATPDF_KEY:
-        logger.info("🤖 ChatPDF activé")
+    logger.info("🤖 ChatPDF activé - Toutes les réponses utiliseront ChatPDF")
     
     try:
         # Créer l'application
