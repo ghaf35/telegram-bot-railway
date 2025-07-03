@@ -10,6 +10,7 @@ import requests
 import tempfile
 import json
 import re
+import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import PyPDF2
@@ -299,28 +300,21 @@ async def ask_chatpdf(source_id: str, question: str) -> str:
             result = response.json()
             content = result['content']
             
-            # Nettoyer la réponse de ChatPDF
-            # Chercher et supprimer la première ligne si elle contient "Réponse basée sur"
-            lines = content.split('\n')
-            if lines and '📊' in lines[0] and 'Réponse basée sur' in lines[0]:
-                lines = lines[1:]  # Supprimer la première ligne
-                # Supprimer les lignes vides au début
-                while lines and lines[0].strip() == '':
-                    lines = lines[1:]
+            # Nettoyer la réponse de ChatPDF si elle contient les marqueurs
+            # Note: Il semble que ChatPDF n'ajoute pas ces marqueurs dans sa réponse JSON
+            # mais au cas où, on garde le nettoyage
             
-            # Reconstituer le contenu
-            content = '\n'.join(lines)
+            # Supprimer "📊 Réponse basée sur" au début s'il existe
+            if content.startswith('📊'):
+                lines = content.split('\n')
+                if lines and 'Réponse basée sur' in lines[0]:
+                    content = '\n'.join(lines[1:]).strip()
             
-            # Supprimer la dernière ligne si elle contient "Source : ChatPDF"
-            lines = content.split('\n')
-            if lines and '✅' in lines[-1] and 'ChatPDF' in lines[-1]:
-                lines = lines[:-1]  # Supprimer la dernière ligne
-                # Supprimer les lignes vides à la fin
-                while lines and lines[-1].strip() == '':
-                    lines = lines[:-1]
-            
-            # Reconstituer le contenu final
-            content = '\n'.join(lines)
+            # Supprimer "✅ Source : ChatPDF" à la fin s'il existe
+            if '✅' in content and 'ChatPDF' in content:
+                lines = content.split('\n')
+                if lines and '✅' in lines[-1] and 'ChatPDF' in lines[-1]:
+                    content = '\n'.join(lines[:-1]).strip()
             
             # Formatter avec les références
             if 'references' in result and result['references']:
@@ -1118,16 +1112,20 @@ def main():
         # Créer l'application
         app = Application.builder().token(TELEGRAM_TOKEN).build()
         
-        # Synchronisation automatique au démarrage
-        import asyncio
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        sync_result = loop.run_until_complete(auto_sync_at_startup())
-        
-        if sync_result:
-            logger.info("✅ Documents prêts ! Le bot peut répondre aux questions.")
-        else:
-            logger.warning("⚠️ Synchronisation automatique échouée, utilisez /synchroniser")
+        # Synchronisation automatique au démarrage (avec gestion d'erreur)
+        try:
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            sync_result = loop.run_until_complete(auto_sync_at_startup())
+            
+            if sync_result:
+                logger.info("✅ Documents prêts ! Le bot peut répondre aux questions.")
+            else:
+                logger.warning("⚠️ Synchronisation automatique échouée, utilisez /synchroniser")
+        except Exception as e:
+            logger.error(f"❌ Erreur lors de la synchronisation automatique : {e}")
+            logger.warning("⚠️ Le bot démarre sans documents préchargés")
         
         # Handlers de commandes (compatibilité)
         app.add_handler(CommandHandler("start", start))
