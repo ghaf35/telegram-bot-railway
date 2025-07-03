@@ -11,10 +11,12 @@ import tempfile
 import json
 import re
 import asyncio
+import random
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import PyPDF2
 import io
+from quiz_predefined import get_random_quiz
 
 # Configuration du logging
 logging.basicConfig(
@@ -734,10 +736,40 @@ async def quiz_natural(update: Update, context: ContextTypes.DEFAULT_TYPE, doc_n
         return
     
     await update.message.reply_text(
-        f"✏️ *Je prépare un quiz interactif{f' sur {doc_name}' if doc_name else ''}...*\n\n"
-        "_Les questions vont arriver une par une !_",
+        f"✏️ *Je prépare un quiz interactif sur la sécurité ferroviaire !*\n\n"
+        "_3 questions vont arriver..._",
         parse_mode='Markdown'
     )
+    
+    # Utiliser les quiz prédéfinis
+    try:
+        quiz_questions = get_random_quiz()
+        
+        for i, q in enumerate(quiz_questions):
+            await update.message.reply_poll(
+                question=f"❓ Question {i+1}: {q['question']}",
+                options=q['options'],
+                type='quiz',
+                correct_option_id=q['correct'],
+                explanation=q['explanation'],
+                is_anonymous=False,
+                allows_multiple_answers=False
+            )
+            
+            # Petite pause entre les questions
+            await asyncio.sleep(1.5)
+        
+        # Message de fin
+        await update.message.reply_text(
+            "✅ *Quiz terminé !*\n\n"
+            "J'espère que ça t'a aidé à réviser ! 📚\n\n"
+            "_Dis \"nouveau quiz\" pour recommencer !_",
+            parse_mode='Markdown'
+        )
+        return
+    except Exception as e:
+        logger.error(f"Erreur quiz prédéfini : {e}")
+        # Continuer avec le quiz ChatPDF si erreur
     
     # Si pas de document spécifié, prendre le premier disponible
     if not doc_name and chatpdf_sources:
